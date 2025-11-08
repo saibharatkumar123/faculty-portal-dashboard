@@ -1,5 +1,8 @@
-mysql-connector-python==8.1.0
+# Potential additional dependencies needed:
 Flask==2.3.3
-gunicorn==21.2.0
-openpyxl==3.1.2
+mysql-connector-python==8.1.0
 Werkzeug==2.3.7
+# Add these for enhanced functionality:
+python-dotenv==1.0.0    # For environment variables
+bcrypt==4.0.1           # For password hashing (security)
+email-validator==2.0.0  # For email validation
