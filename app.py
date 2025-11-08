@@ -49,14 +49,15 @@ def allowed_file(filename):
 app = Flask(__name__)
 app.secret_key = 'faculty-secret-key'
 
+import os
+
 def get_db_connection():
     return mysql.connector.connect(
-        host='localhost',
-        user='your_username',   
-        password='your_password', 
-        database='faculty_portal'
+        host=os.environ.get('MYSQLHOST', 'localhost'),
+        user=os.environ.get('MYSQLUSER', 'root'),
+        password=os.environ.get('MYSQLPASSWORD', ''),
+        database=os.environ.get('MYSQLDATABASE', 'faculty_portal')
     )
-
 def login_required(f):
     """Decorator to require login for routes"""
     from functools import wraps
