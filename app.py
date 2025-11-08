@@ -48,9 +48,6 @@ def allowed_file(filename):
 
 app = Flask(__name__)
 app.secret_key = 'faculty-secret-key'
-
-import os
-
 def get_db_connection():
     return mysql.connector.connect(
         host=os.environ.get('MYSQLHOST', 'localhost'),
