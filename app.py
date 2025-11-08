@@ -50,26 +50,12 @@ app = Flask(__name__)
 app.secret_key = 'faculty-secret-key'
 
 def get_db_connection():
-    try:
-        conn = mysql.connector.connect(
-            host=os.environ['MYSQLHOST'],
-            user=os.environ['MYSQLUSER'],
-            password=os.environ['MYSQLPASSWORD'],
-            database=os.environ['MYSQLDATABASE'],
-            port=int(os.environ['MYSQLPORT']),
-            connect_timeout=30,
-            autocommit=True
-        )
-        print("✅ Database connected successfully!")
-        return conn
-    except mysql.connector.Error as e:
-        print(f"❌ Database connection failed: {e}")
-        print(f"   Host: {os.environ.get('MYSQLHOST')}")
-        print(f"   Database: {os.environ.get('MYSQLDATABASE')}")
-        return None
-    except KeyError as e:
-        print(f"❌ Missing environment variable: {e}")
-        return None
+    return mysql.connector.connect(
+        host='localhost',
+        user='your_username',    # ✅ Safe placeholder
+        password='your_password', # ✅ Safe placeholder  
+        database='faculty_portal'
+    )
 def login_required(f):
     """Decorator to require login for routes"""
     from functools import wraps
