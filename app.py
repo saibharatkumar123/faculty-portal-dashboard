@@ -48,13 +48,14 @@ def allowed_file(filename):
 
 app = Flask(__name__)
 app.secret_key = 'faculty-secret-key'
-
 def get_db_connection():
+    # Works both locally and on Railway!
     return mysql.connector.connect(
-        host='localhost',
-        user='your_username',    # ✅ Safe placeholder
-        password='your_password', # ✅ Safe placeholder  
-        database='faculty_portal'
+        host=os.environ.get('MYSQLHOST', 'localhost'),
+        user=os.environ.get('MYSQLUSER', 'your_username'),
+        password=os.environ.get('MYSQLPASSWORD', 'your_password'),
+        database=os.environ.get('MYSQLDATABASE', 'faculty_portal'),
+        port=int(os.environ.get('MYSQLPORT', 3306)),
     )
 def login_required(f):
     """Decorator to require login for routes"""
