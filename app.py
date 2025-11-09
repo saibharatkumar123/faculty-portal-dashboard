@@ -3,7 +3,6 @@ import datetime
 import os
 import io
 from werkzeug.utils import secure_filename
-import sqlite3
 import mysql.connector
 from mysql.connector import Error, InterfaceError  # ← ADD THIS IMPORT
 import openpyxl
@@ -52,15 +51,21 @@ app = Flask(__name__)
 app.secret_key = 'faculty-secret-key'
 
 def get_db_connection():
-    # Try MySQL first (Railway)
-    try:
-        mysql_host = os.environ.get('MYSQLHOST')
-        mysql_user = os.environ.get('MYSQLUSER')
-        mysql_password = os.environ.get('MYSQLPASSWORD')
-        mysql_database = os.environ.get('MYSQLDATABASE')
-        
-        # Only try MySQL if all required variables are present
-        if all([mysql_host, mysql_user, mysql_password, mysql_database]):
+    # FORCE MySQL usage on Railway
+    mysql_host = os.environ.get('MYSQLHOST')
+    mysql_user = os.environ.get('MYSQLUSER')
+    mysql_password = os.environ.get('MYSQLPASSWORD')
+    mysql_database = os.environ.get('MYSQLDATABASE')
+    
+    print(f"🔍 DATABASE CONFIG:")
+    print(f"   MYSQLHOST: {mysql_host}")
+    print(f"   MYSQLUSER: {mysql_user}")
+    print(f"   MYSQLDATABASE: {mysql_database}")
+    print(f"   MYSQLPASSWORD: {'[SET]' if mysql_password else '[NOT SET]'}")
+    
+    # Try MySQL (required for Railway)
+    if all([mysql_host, mysql_user, mysql_password, mysql_database]):
+        try:
             conn = mysql.connector.connect(
                 host=mysql_host,
                 user=mysql_user,
@@ -69,77 +74,87 @@ def get_db_connection():
                 port=os.environ.get('MYSQLPORT', '3306'),
                 connection_timeout=10
             )
-            print("✅ Connected to MySQL database")
-            return {'conn': conn, 'type': 'mysql'}
-        else:
-            print("⚠️  MySQL environment variables not complete, using SQLite fallback")
+            print("✅ Connected to MySQL database on Railway")
             
-    except Exception as e:
-        print(f"❌ MySQL connection failed: {e}")
-    
-    # Fallback to SQLite for development
-    try:
-        # Create SQLite database file
-        sqlite_path = '/tmp/faculty_portal.db' if os.path.exists('/tmp') else 'faculty_portal.db'
-        conn = sqlite3.connect(sqlite_path)
-        conn.row_factory = sqlite3.Row
-        print("✅ Connected to SQLite database (fallback)")
-        
-        # Create tables if they don't exist
-        cursor = conn.cursor()
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT UNIQUE NOT NULL,
-                email TEXT UNIQUE NOT NULL,
-                password_hash TEXT NOT NULL,
-                role TEXT DEFAULT 'faculty',
-                approved BOOLEAN DEFAULT FALSE,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                last_login TIMESTAMP NULL,
-                full_name TEXT,
-                department TEXT
-            )
-        ''')
-        
-        # Create test users immediately
-        test_users = [
-            ('iqac_admin', 'iqac.admin@pragati.ac.in', 'Admin123', 'IQAC', 1),
-            ('office_user', 'office@pragati.ac.in', 'office123', 'Office', 1),
-            ('faculty_user', 'faculty@pragati.ac.in', 'faculty123', 'Faculty', 1)
-        ]
-        
-        users_created = 0
-        for username, email, password, role, approved in test_users:
-            try:
-                cursor.execute('''
-                    INSERT OR IGNORE INTO users (username, email, password_hash, role, approved) 
-                    VALUES (?, ?, ?, ?, ?)
-                ''', (username, email, password, role, approved))
-                if cursor.rowcount > 0:
-                    users_created += 1
-                    print(f"✅ Created user: {username}")
-            except Exception as e:
-                print(f"⚠️  Could not create user {username}: {e}")
-        
-        # VERIFY: Immediately check if users exist
-        print("🔍 Verifying created users...")
-        cursor.execute('SELECT username, email FROM users')
-        existing_users = cursor.fetchall()
-        print(f"🔍 Users in database: {len(existing_users)}")
-        for user in existing_users:
-            print(f"   - {user['username']} ({user['email']})")
-        
-        conn.commit()
-        cursor.close()
-        
-        print(f"✅ Database setup complete. Created {users_created} new users.")
-        
-        return {'conn': conn, 'type': 'sqlite'}
-        
-    except Exception as e:
-        print(f"❌ SQLite connection also failed: {e}")
+            # Initialize MySQL tables
+            cursor = conn.cursor()
+            
+            # Create users table if not exists
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS users (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    username VARCHAR(255) UNIQUE NOT NULL,
+                    email VARCHAR(255) UNIQUE NOT NULL,
+                    password_hash VARCHAR(255) NOT NULL,
+                    role VARCHAR(50) DEFAULT 'faculty',
+                    approved BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_login TIMESTAMP NULL,
+                    full_name VARCHAR(255),
+                    department VARCHAR(255)
+                )
+            ''')
+            
+            # Create test users
+            test_users = [
+                ('iqac_admin', 'iqac.admin@pragati.ac.in', 'Admin123', 'IQAC', 1),
+                ('office_user', 'office@pragati.ac.in', 'office123', 'Office', 1),
+                ('faculty_user', 'faculty@pragati.ac.in', 'faculty123', 'Faculty', 1)
+            ]
+            
+            for username, email, password, role, approved in test_users:
+                try:
+                    cursor.execute(
+                        'INSERT IGNORE INTO users (username, email, password_hash, role, approved) VALUES (%s, %s, %s, %s, %s)',
+                        (username, email, password, role, approved)
+                    )
+                except Exception as e:
+                    print(f"⚠️  Could not create user {username}: {e}")
+            
+            conn.commit()
+            cursor.close()
+            
+            return {'conn': conn, 'type': 'mysql'}
+            
+        except Exception as e:
+            print(f"❌ MySQL connection failed: {e}")
+            # Don't fallback to SQLite on Railway - we want to know if MySQL fails
+            return None
+    else:
+        print("❌ MySQL environment variables not set. Please add MySQL database on Railway.")
         return None
+@app.route('/db-status')
+def db_status():
+    """Check database connection status"""
+    mysql_host = os.environ.get('MYSQLHOST')
+    mysql_user = os.environ.get('MYSQLUSER')
+    mysql_database = os.environ.get('MYSQLDATABASE')
+    
+    status = {
+        "mysql_configured": all([mysql_host, mysql_user, mysql_database]),
+        "environment_variables": {
+            "MYSQLHOST": mysql_host,
+            "MYSQLUSER": mysql_user, 
+            "MYSQLDATABASE": mysql_database,
+            "MYSQLPASSWORD": "***" if os.environ.get('MYSQLPASSWORD') else "NOT SET"
+        }
+    }
+    
+    # Test connection
+    connection_info = get_db_connection()
+    if connection_info:
+        conn = connection_info['conn']
+        cursor = conn.cursor()
+        cursor.execute('SELECT COUNT(*) as user_count FROM users')
+        result = cursor.fetchone()
+        status['connection_test'] = 'SUCCESS'
+        status['user_count'] = result['user_count'] if connection_info['type'] == 'mysql' else result[0]
+        cursor.close()
+        conn.close()
+    else:
+        status['connection_test'] = 'FAILED'
+    
+    return jsonify(status)        
 def execute_query(connection_info, query, params=None):
     """Execute query and return results as dictionaries"""
     if connection_info is None:
