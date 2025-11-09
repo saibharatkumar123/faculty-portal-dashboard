@@ -50,13 +50,26 @@ app = Flask(__name__)
 app.secret_key = 'faculty-secret-key'
 
 def get_db_connection():
-    return mysql.connector.connect(
-        host='localhost',
-        user='root',
-        password='Root123!',
-        database='faculty_portal'
-    )
-
+    try:
+        conn = mysql.connector.connect(
+            host=os.environ['MYSQLHOST'],
+            user=os.environ['MYSQLUSER'],
+            password=os.environ['MYSQLPASSWORD'],
+            database=os.environ['MYSQLDATABASE'],
+            port=int(os.environ['MYSQLPORT']),
+            connect_timeout=30,
+            autocommit=True
+        )
+        print("✅ Database connected successfully!")
+        return conn
+    except mysql.connector.Error as e:
+        print(f"❌ Database connection failed: {e}")
+        print(f"   Host: {os.environ.get('MYSQLHOST')}")
+        print(f"   Database: {os.environ.get('MYSQLDATABASE')}")
+        return None
+    except KeyError as e:
+        print(f"❌ Missing environment variable: {e}")
+        return None
 def login_required(f):
     """Decorator to require login for routes"""
     from functools import wraps
@@ -3927,7 +3940,43 @@ def rd_download_excel():
         
     except Exception as e:
         flash(f'❌ Error generating Excel file: {str(e)}', 'error')
-        return redirect(f'/rd/publications?type={publication_type}')            
+        return redirect(f'/rd/publications?type={publication_type}')   
+@app.route('/debug-db')
+def debug_db():
+    """Debug database connection"""
+    try:
+        env_info = {
+            'MYSQLHOST': os.environ.get('MYSQLHOST'),
+            'MYSQLUSER': os.environ.get('MYSQLUSER'),
+            'MYSQLDATABASE': os.environ.get('MYSQLDATABASE'),
+            'MYSQLPORT': os.environ.get('MYSQLPORT'),
+            'MYSQL_URL': os.environ.get('MYSQL_URL')[:50] + '...' if os.environ.get('MYSQL_URL') else None
+        }
+        
+        conn = get_db_connection()
+        if conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT 1 as test")
+            result = cursor.fetchone()
+            cursor.close()
+            conn.close()
+            return jsonify({
+                "status": "success", 
+                "database_test": result,
+                "environment": env_info
+            })
+        else:
+            return jsonify({
+                "status": "error", 
+                "message": "Database connection failed",
+                "environment": env_info
+            })
+    except Exception as e:
+        return jsonify({
+            "status": "error", 
+            "message": str(e),
+            "environment": env_info
+        })                 
 if __name__ == '__main__':
     print("🚀 Faculty Portal Starting...")
     app.run(debug=True, host='0.0.0.0', port=5000)
