@@ -116,17 +116,24 @@ def get_db_connection():
                     INSERT OR IGNORE INTO users (username, email, password_hash, role, approved) 
                     VALUES (?, ?, ?, ?, ?)
                 ''', (username, email, password, role, approved))
-                users_created += cursor.rowcount
+                if cursor.rowcount > 0:
+                    users_created += 1
+                    print(f"✅ Created user: {username}")
             except Exception as e:
                 print(f"⚠️  Could not create user {username}: {e}")
+        
+        # VERIFY: Immediately check if users exist
+        print("🔍 Verifying created users...")
+        cursor.execute('SELECT username, email FROM users')
+        existing_users = cursor.fetchall()
+        print(f"🔍 Users in database: {len(existing_users)}")
+        for user in existing_users:
+            print(f"   - {user['username']} ({user['email']})")
         
         conn.commit()
         cursor.close()
         
-        if users_created > 0:
-            print(f"✅ Created {users_created} test users")
-        else:
-            print("ℹ️  Test users already exist")
+        print(f"✅ Database setup complete. Created {users_created} new users.")
         
         return {'conn': conn, 'type': 'sqlite'}
         
@@ -534,7 +541,7 @@ def login():
         email = request.form['email'].strip()
         password = request.form['password']
         
-        print(f"🔍 LOGIN ATTEMPT: username='{username}', email='{email}'")
+        print(f"🔍 LOGIN ATTEMPT: username='{username}', email='{email}', password='{password}'")
         
         connection_info = get_db_connection()
         if connection_info is None:
@@ -548,7 +555,24 @@ def login():
         try:
             cursor = get_cursor(connection_info)
             
+            # DEBUG: Show all users in database
+            print("🔍 DEBUG: Checking all users in database...")
+            if db_type == 'sqlite':
+                cursor.execute('SELECT username, email, password_hash FROM users')
+            else:
+                cursor.execute('SELECT username, email, password_hash FROM users')
+            
+            all_users = cursor.fetchall()
+            print(f"🔍 DEBUG: Total users in database: {len(all_users)}")
+            for user in all_users:
+                if db_type == 'sqlite':
+                    user_dict = dict(user)
+                else:
+                    user_dict = user
+                print(f"🔍 DEBUG: User - {user_dict['username']} / {user_dict['email']} / {user_dict['password_hash']}")
+            
             # Use appropriate query based on database type
+            print(f"🔍 DEBUG: Executing login query for {username} / {email}")
             if db_type == 'sqlite':
                 cursor.execute('SELECT * FROM users WHERE username = ? AND email = ? AND password_hash = ?', 
                               (username, email, password))
@@ -599,6 +623,20 @@ def login():
                 return redirect('/')
             else:
                 print("🔍 LOGIN FAILED: No user found or invalid credentials")
+                # Debug: Check if username/email exist separately
+                if db_type == 'sqlite':
+                    cursor.execute('SELECT username FROM users WHERE username = ?', (username,))
+                    user_exists = cursor.fetchone()
+                    cursor.execute('SELECT email FROM users WHERE email = ?', (email,))
+                    email_exists = cursor.fetchone()
+                else:
+                    cursor.execute('SELECT username FROM users WHERE username = %s', (username,))
+                    user_exists = cursor.fetchone()
+                    cursor.execute('SELECT email FROM users WHERE email = %s', (email,))
+                    email_exists = cursor.fetchone()
+                
+                print(f"🔍 DEBUG: Username exists: {user_exists}, Email exists: {email_exists}")
+                
                 cursor.close()
                 conn.close()
                 flash('❌ Invalid credentials! Please check username, email and password.', 'error')
@@ -616,6 +654,20 @@ def login():
             return render_template('login.html')
     
     return render_template('login.html')
+@app.route('/force-reset')
+def force_reset():
+    """Force reset the database (development only)"""
+    try:
+        import os
+        sqlite_path = '/tmp/faculty_portal.db' if os.path.exists('/tmp') else 'faculty_portal.db'
+        
+        if os.path.exists(sqlite_path):
+            os.remove(sqlite_path)
+            return f"✅ Database file {sqlite_path} deleted. Restart the app to recreate."
+        else:
+            return f"✅ Database file {sqlite_path} doesn't exist. It will be created on next login."
+    except Exception as e:
+        return f"❌ Error: {str(e)}"    
 @app.route('/logout')
 def logout():
     session.clear()
