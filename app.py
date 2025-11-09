@@ -222,6 +222,33 @@ def init_database():
         
     except Exception as e:
         print(f"❌ Database initialization failed: {e}")
+def with_db_connection(func):
+    """Decorator to handle database connections automatically"""
+    def wrapper(*args, **kwargs):
+        connection_info = get_db_connection()
+        if connection_info is None:
+            return None
+        try:
+            return func(connection_info, *args, **kwargs)
+        finally:
+            if 'conn' in connection_info:
+                connection_info['conn'].close()
+    return wrapper
+
+# Example usage:
+@with_db_connection
+def get_user_by_email(connection_info, email):
+    cursor = get_cursor(connection_info)
+    if connection_info['type'] == 'sqlite':
+        cursor.execute('SELECT * FROM users WHERE email = ?', (email,))
+    else:
+        cursor.execute('SELECT * FROM users WHERE email = %s', (email,))
+    user = cursor.fetchone()
+    cursor.close()
+    
+    if user and connection_info['type'] == 'sqlite':
+        return dict(user)
+    return user        
 def login_required(f):
     """Decorator to require login for routes"""
     from functools import wraps
@@ -295,7 +322,38 @@ def check_publication_access(faculty_id):
         return faculty and faculty['email'] == user_email
     
     return False      
-
+@app.route('/test-db')
+def test_db():
+    """Test database connection and basic functionality"""
+    try:
+        connection_info = get_db_connection()
+        if connection_info is None:
+            return jsonify({"status": "error", "message": "No database connection"})
+        
+        conn = connection_info['conn']
+        db_type = connection_info['type']
+        
+        cursor = get_cursor(connection_info)
+        
+        # Test query
+        if db_type == 'sqlite':
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        else:
+            cursor.execute("SHOW TABLES")
+        
+        tables = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            "status": "success",
+            "database_type": db_type,
+            "tables": [dict(table) for table in tables] if db_type == 'mysql' else [table[0] for table in tables]
+        })
+        
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
