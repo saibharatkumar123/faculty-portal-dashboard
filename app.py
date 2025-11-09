@@ -59,12 +59,6 @@ def get_db_connection():
         mysql_password = os.environ.get('MYSQLPASSWORD')
         mysql_database = os.environ.get('MYSQLDATABASE')
         
-        print(f"🔍 Checking MySQL environment variables:")
-        print(f"   MYSQLHOST: {mysql_host}")
-        print(f"   MYSQLUSER: {mysql_user}")
-        print(f"   MYSQLDATABASE: {mysql_database}")
-        print(f"   MYSQLPASSWORD: {'[SET]' if mysql_password else '[NOT SET]'}")
-        
         # Only try MySQL if all required variables are present
         if all([mysql_host, mysql_user, mysql_password, mysql_database]):
             conn = mysql.connector.connect(
@@ -108,11 +102,25 @@ def get_db_connection():
             )
         ''')
         
-        # Add a default admin user for testing
-        cursor.execute('''
-            INSERT OR IGNORE INTO users (username, email, password_hash, role, approved) 
-            VALUES (?, ?, ?, ?, ?)
-        ''', ('admin', 'admin@example.com', 'admin123', 'IQAC', 1))
+        # Check if admin user exists, if not create it
+        cursor.execute('SELECT id FROM users WHERE username = ?', ('admin',))
+        admin_exists = cursor.fetchone()
+        
+        if not admin_exists:
+            # Create multiple test users
+            test_users = [
+                ('iqac_admin', 'iqac.admin@pragati.ac.in', 'admin123', 'IQAC', 1),
+                ('office_user', 'office@pragati.ac.in', 'office123', 'Office', 1),
+                ('faculty_user', 'faculty@pragati.ac.in', 'faculty123', 'Faculty', 1)
+            ]
+            
+            for username, email, password, role, approved in test_users:
+                cursor.execute('''
+                    INSERT OR IGNORE INTO users (username, email, password_hash, role, approved) 
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (username, email, password, role, approved))
+            
+            print("✅ Created test users: iqac_admin, office_user, faculty_user")
         
         conn.commit()
         cursor.close()
@@ -321,7 +329,107 @@ def check_publication_access(faculty_id):
         
         return faculty and faculty['email'] == user_email
     
-    return False      
+    return False   
+@app.route('/debug-db-users')
+def debug_db_users():
+    """Debug route to see all users in database"""
+    connection_info = get_db_connection()
+    if connection_info is None:
+        return "No database connection"
+    
+    conn = connection_info['conn']
+    db_type = connection_info['type']
+    
+    cursor = get_cursor(connection_info)
+    
+    # Get all users
+    if db_type == 'sqlite':
+        cursor.execute('SELECT * FROM users')
+    else:
+        cursor.execute('SELECT * FROM users')
+    
+    users = cursor.fetchall()
+    
+    result = f"<h2>Database Type: {db_type}</h2>"
+    result += f"<h3>Total Users: {len(users)}</h3>"
+    
+    for user in users:
+        if db_type == 'sqlite':
+            user_dict = dict(user)
+        else:
+            user_dict = user
+        result += f"<pre>{user_dict}</pre><hr>"
+    
+    cursor.close()
+    conn.close()
+    return result
+@app.route('/register-test', methods=['GET', 'POST'])
+def register_test():
+    """Test registration route to create a user"""
+    if request.method == 'POST':
+        username = request.form['username']
+        email = request.form['email']
+        password = request.form['password']
+        role = request.form.get('role', 'IQAC')
+        
+        connection_info = get_db_connection()
+        if connection_info is None:
+            return "No database connection"
+        
+        conn = connection_info['conn']
+        db_type = connection_info['type']
+        
+        try:
+            cursor = get_cursor(connection_info)
+            
+            # Check if user already exists
+            if db_type == 'sqlite':
+                cursor.execute('SELECT id FROM users WHERE username = ? OR email = ?', (username, email))
+            else:
+                cursor.execute('SELECT id FROM users WHERE username = %s OR email = %s', (username, email))
+            
+            existing_user = cursor.fetchone()
+            
+            if existing_user:
+                return "User already exists!"
+            
+            # Create new user
+            if db_type == 'sqlite':
+                cursor.execute('''
+                    INSERT INTO users (username, email, password_hash, role, approved) 
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (username, email, password, role, 1))
+            else:
+                cursor.execute('''
+                    INSERT INTO users (username, email, password_hash, role, approved) 
+                    VALUES (%s, %s, %s, %s, %s)
+                ''', (username, email, password, role, 1))
+            
+            conn.commit()
+            cursor.close()
+            conn.close()
+            
+            return f"✅ User '{username}' created successfully!<br>You can now login with:<br>Username: {username}<br>Email: {email}<br>Password: {password}"
+            
+        except Exception as e:
+            return f"Error: {str(e)}"
+    
+    # GET request - show form
+    return '''
+    <form method="POST">
+        <h3>Create Test User</h3>
+        Username: <input type="text" name="username" value="iqac_admin" required><br>
+        Email: <input type="email" name="email" value="iqac.admin@pragati.ac.in" required><br>
+        Password: <input type="password" name="password" value="admin123" required><br>
+        Role: 
+        <select name="role">
+            <option value="IQAC">IQAC</option>
+            <option value="Office">Office</option>
+            <option value="Faculty">Faculty</option>
+        </select><br>
+        <input type="submit" value="Create User">
+    </form>
+    '''    
 @app.route('/test-db')
 def test_db():
     """Test database connection and basic functionality"""
