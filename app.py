@@ -50,13 +50,59 @@ app = Flask(__name__)
 app.secret_key = 'faculty-secret-key'
 
 def get_db_connection():
-    return mysql.connector.connect(
-        host='localhost',
-        user='root',    # ✅ Safe placeholder
-        password='Root123!', # ✅ Safe placeholder  
-        database='faculty_portal'
-    )
+    try:
+        # Use Railway MySQL environment variables with fallbacks for local development
+        conn = mysql.connector.connect(
+            host=os.environ.get('MYSQLHOST', 'localhost'),
+            user=os.environ.get('MYSQLUSER', 'root'),
+            password=os.environ.get('MYSQLPASSWORD', ''),
+            database=os.environ.get('MYSQLDATABASE', 'faculty_portal'),
+            port=os.environ.get('MYSQLPORT', '3306'),
+            connection_timeout=10
+        )
+        print(f"✅ Database connected to: {os.environ.get('MYSQLHOST', 'localhost')}")
+        return conn
+    except Error as e:
+        print(f"❌ Database connection failed: {e}")
+        print(f"   Host: {os.environ.get('MYSQLHOST', 'localhost')}")
+        print(f"   User: {os.environ.get('MYSQLUSER', 'root')}")
+        print(f"   Database: {os.environ.get('MYSQLDATABASE', 'faculty_portal')}")
+        return None
+def init_database():
+    """Create necessary tables if they don't exist"""
+    try:
+        conn = get_db_connection()
+        if conn:
+            cursor = conn.cursor()
+            
+            # Create users table with all your required fields
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS users (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    username VARCHAR(255) UNIQUE NOT NULL,
+                    email VARCHAR(255) UNIQUE NOT NULL,
+                    password_hash VARCHAR(255) NOT NULL,
+                    role VARCHAR(50) DEFAULT 'faculty',
+                    approved BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_login TIMESTAMP NULL,
+                    full_name VARCHAR(255),
+                    department VARCHAR(255)
+                )
+            ''')
+            
+            # Add any other tables you need
+            # cursor.execute('CREATE TABLE IF NOT EXISTS your_other_table...')
+            
+            conn.commit()
+            cursor.close()
+            conn.close()
+            print("✅ Database tables initialized successfully!")
+    except Error as e:
+        print(f"❌ Database initialization failed: {e}")
 
+# Call this when app starts (add this line)
+init_database()
 def login_required(f):
     """Decorator to require login for routes"""
     from functools import wraps
