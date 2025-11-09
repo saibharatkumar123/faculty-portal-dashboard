@@ -165,11 +165,18 @@ def get_cursor(connection_info):
 def init_database():
     """Create necessary tables if they don't exist"""
     try:
-        conn = get_db_connection()
-        if conn:
-            cursor = conn.cursor()
+        connection_info = get_db_connection()
+        if connection_info is None:
+            print("❌ Database initialization failed: No connection")
+            return
             
-            # Create users table with all your required fields
+        conn = connection_info['conn']
+        db_type = connection_info['type']
+        
+        cursor = get_cursor(connection_info)
+        
+        if db_type == 'mysql':
+            # MySQL table creation
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS users (
                     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -185,18 +192,36 @@ def init_database():
                 )
             ''')
             
-            # Add any other tables you need
-            # cursor.execute('CREATE TABLE IF NOT EXISTS your_other_table...')
+            # Add other MySQL tables here as needed
+            # cursor.execute('CREATE TABLE IF NOT EXISTS faculty (...)')
             
-            conn.commit()
-            cursor.close()
-            conn.close()
-            print("✅ Database tables initialized successfully!")
-    except Error as e:
+        else:  # sqlite
+            # SQLite table creation
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT UNIQUE NOT NULL,
+                    email TEXT UNIQUE NOT NULL,
+                    password_hash TEXT NOT NULL,
+                    role TEXT DEFAULT 'faculty',
+                    approved BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_login TIMESTAMP NULL,
+                    full_name TEXT,
+                    department TEXT
+                )
+            ''')
+            
+            # Add other SQLite tables here as needed
+            # cursor.execute('CREATE TABLE IF NOT EXISTS faculty (...)')
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        print("✅ Database tables initialized successfully!")
+        
+    except Exception as e:
         print(f"❌ Database initialization failed: {e}")
-
-# Call this when app starts (add this line)
-init_database()
 def login_required(f):
     """Decorator to require login for routes"""
     from functools import wraps
