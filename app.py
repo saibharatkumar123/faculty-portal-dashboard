@@ -52,16 +52,24 @@ app.secret_key = 'faculty-secret-key'
 def get_db_connection():
     try:
         conn = mysql.connector.connect(
-            host=os.environ.get('DB_HOST', 'localhost'),
-            user=os.environ.get('DB_USER', 'root'),
-            password=os.environ.get('DB_PASSWORD', 'Root123!'),
-            database=os.environ.get('DB_NAME', 'faculty_portal'),
-            port=os.environ.get('DB_PORT', 3306)
+            host=os.getenv('DB_HOST', 'localhost'),  # Use 'mysql' if in Docker network
+            user=os.getenv('DB_USER', 'root'),
+            password=os.getenv('DB_PASSWORD', ''),
+            database=os.getenv('DB_NAME', 'faculty_portal'),
+            port=os.getenv('DB_PORT', '3306')
         )
         return conn
-    except Exception as e:
+    except mysql.connector.Error as e:
         print(f"Database connection error: {e}")
         return None
+
+@app.route('/')
+def test_connection():
+    conn = get_db_connection()
+    if conn:
+        return "Database connected successfully!"
+    else:
+        return "Database connection failed!"
 
 def login_required(f):
     """Decorator to require login for routes"""
@@ -3935,5 +3943,4 @@ def rd_download_excel():
         flash(f'❌ Error generating Excel file: {str(e)}', 'error')
         return redirect(f'/rd/publications?type={publication_type}')            
 if __name__ == '__main__':
-    print("🚀 Faculty Portal Starting...")
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(host='0.0.0.0', port=5000, debug=True)
