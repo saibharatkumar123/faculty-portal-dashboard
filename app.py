@@ -68,15 +68,6 @@ app.secret_key = 'faculty-secret-key'
 def index():
     # Your dashboard logic
     return render_template('index.html')
-def login_required(f):
-    """Decorator to require login for routes"""
-    from functools import wraps
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if not session.get('logged_in'):
-            return redirect('/login')
-        return f(*args, **kwargs)
-    return decorated_function    
 
 def can_edit_publications(faculty_id):
     """Check if current user can edit publications for this faculty"""
