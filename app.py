@@ -55,10 +55,6 @@ def allowed_file(filename):
 
 app = Flask(__name__)
 app.secret_key = 'faculty-secret-key'
-
-@app.route('/')
-def home():
-    return render_template('login.html')
 @app.route('/')
 @login_required
 def index():
