@@ -100,6 +100,88 @@ def initialize_database():
 
 # Call this function when the app starts
 initialize_database()
+@app.route('/setup/database')
+def setup_database():
+    """Initialize complete database structure"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Create users table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL,
+                email TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT 'Faculty',
+                approved BOOLEAN NOT NULL DEFAULT FALSE,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                last_login DATETIME
+            )
+        ''')
+        
+        # Create faculty table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS faculty (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                employee_id TEXT UNIQUE NOT NULL,
+                name_ssc TEXT NOT NULL,
+                name_change BOOLEAN DEFAULT FALSE,
+                name_change_proof TEXT,
+                dob DATE,
+                gender TEXT,
+                blood_group TEXT,
+                marital_status TEXT,
+                father_name TEXT,
+                present_address TEXT,
+                permanent_address TEXT,
+                email TEXT UNIQUE NOT NULL,
+                mobile_no TEXT,
+                alternative_mobile TEXT,
+                department TEXT,
+                designation TEXT,
+                date_of_joining DATE,
+                appointment_type TEXT,
+                aadhaar_number TEXT,
+                pan_number TEXT,
+                bank_name TEXT,
+                bank_account_no TEXT,
+                ifsc_code TEXT,
+                photo_path TEXT,
+                experience_category TEXT,
+                caste TEXT,
+                subcaste TEXT,
+                ratified TEXT DEFAULT 'No',
+                ratified_designation TEXT,
+                ratification_date DATE,
+                previous_employment_date DATE,
+                resignation_date DATE,
+                teaching_exp_pragati REAL DEFAULT 0,
+                teaching_exp_other REAL DEFAULT 0,
+                industrial_exp REAL DEFAULT 0,
+                overall_exp REAL DEFAULT 0,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        # Insert default admin user
+        cursor.execute('''
+            INSERT OR IGNORE INTO users 
+            (username, email, password_hash, role, approved)
+            VALUES (?, ?, ?, ?, ?)
+        ''', ('iqac_admin', 'iqac.admin@pragati.ac.in', 'Admin123!', 'IQAC', True))
+        
+        conn.commit()
+        cursor.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Database initialized successfully with default admin user"
+        })
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 @app.teardown_appcontext
 def close_db(error):
     """Close database connection at the end of request"""
@@ -175,7 +257,38 @@ def check_publication_access(faculty_id):
         return faculty and faculty['email'] == user_email
     
     return False      
-
+@app.route('/debug/db')
+def debug_db():
+    """Debug route to check database state"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Check if users table exists
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
+        users_table = cursor.fetchone()
+        
+        # Check if users exist
+        if users_table:
+            cursor.execute("SELECT COUNT(*) as count FROM users")
+            user_count = cursor.fetchone()['count']
+            
+            cursor.execute("SELECT id, username, email, role, approved FROM users")
+            users = [dict(row) for row in cursor.fetchall()]
+        else:
+            user_count = 0
+            users = []
+        
+        cursor.close()
+        
+        return jsonify({
+            "users_table_exists": bool(users_table),
+            "user_count": user_count,
+            "users": users
+        })
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -196,6 +309,8 @@ def login():
             
             if user:
                 user_dict = dict(user)
+                print(f"🔍 USER FOUND: {user_dict}")
+                
                 if not user_dict['approved']:
                     print(f"🔍 LOGIN FAILED: User '{user_dict['username']}' not approved")
                     cursor.close()
@@ -257,12 +372,57 @@ def login():
                     
         except Exception as e:
             print(f"🔍 LOGIN ERROR: {str(e)}")
+            import traceback
+            print(f"🔍 TRACEBACK: {traceback.format_exc()}")
             cursor.close()
-            flash('❌ System error. Please try again later.', 'error')
-            return render_template('login.html', error='❌ System error. Please try again later.',
+            flash(f'❌ System error during login: {str(e)}', 'error')
+            return render_template('login.html', error=f'❌ System error: {str(e)}',
                                  form_data={'username': username, 'email': email})
     
     return render_template('login.html')
+@app.route('/setup/admin')
+def setup_admin():
+    """Create default admin user for testing"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Check if users table exists, if not create it
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL,
+                email TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT 'Faculty',
+                approved BOOLEAN NOT NULL DEFAULT FALSE,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                last_login DATETIME
+            )
+        ''')
+        
+        # Insert your admin user
+        cursor.execute('''
+            INSERT OR REPLACE INTO users 
+            (username, email, password_hash, role, approved, created_at)
+            VALUES (?, ?, ?, ?, ?, datetime('now'))
+        ''', ('iqac_admin', 'iqac.admin@pragati.ac.in', 'Admin123!', 'IQAC', True))
+        
+        conn.commit()
+        cursor.close()
+        
+        return jsonify({
+            "success": True,
+            "message": "Admin user created successfully",
+            "user": {
+                "username": "iqac_admin",
+                "email": "iqac.admin@pragati.ac.in", 
+                "role": "IQAC"
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500    
 
 @app.route('/logout')
 def logout():
