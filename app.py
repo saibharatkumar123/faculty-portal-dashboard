@@ -236,6 +236,21 @@ def login():
                                  form_data={'username': username, 'email': email})
     
     return render_template('login.html')
+@app.route('/test-db-connection')
+def test_db_connection():
+    try:
+        conn = mysql.connector.connect(
+            host='crossover.proxy.rlwy.net',
+            user='root',
+            password='tVTpsWGpAjrDUjkUnRbWHcuyUpHxlRWS',
+            database='railway',
+            port=3306,
+            connect_timeout=10
+        )
+        conn.close()
+        return "✅ Direct connection successful!"
+    except Exception as e:
+        return f"❌ Direct connection failed: {str(e)}"    
 @app.route('/debug-env')
 def debug_env():
     return {
