@@ -6,17 +6,25 @@
       "use": "@vercel/python"
     },
     {
-      "src": "static/**",
-      "use": "@vercel/static"
+      "src": "build.sh",
+      "use": "@vercel/static-build"
     }
   ],
   "routes": [
     {
+      "src": "/static/(.*)",
+      "dest": "/static/$1"
+    },
+    {
       "src": "/(.*)",
-      "dest": "/app.py"
+      "dest": "app.py"
     }
   ],
-  "env": {
-    "PYTHONPATH": "/var/task"
-  }
+  "functions": {
+    "app.py": {
+      "maxDuration": 60
+    }
+  },
+  "installCommand": "pip install -r requirements.txt",
+  "outputDirectory": "."
 }
