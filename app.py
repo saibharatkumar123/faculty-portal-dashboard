@@ -4,7 +4,6 @@ import os
 import io
 from werkzeug.utils import secure_filename
 import mysql.connector
-from mysql.connector import Error, InterfaceError  # ← ADD THIS IMPORT
 import openpyxl
 from openpyxl.styles import Font, Alignment
 from utils import get_department_stats, get_gender_stats, get_appointment_stats, get_experience_stats, get_designation_stats
@@ -51,260 +50,13 @@ app = Flask(__name__)
 app.secret_key = 'faculty-secret-key'
 
 def get_db_connection():
-<<<<<<< HEAD
-    try:
-        conn = mysql.connector.connect(
-            host=os.environ['MYSQLHOST'],
-            user=os.environ['MYSQLUSER'],
-            password=os.environ['MYSQLPASSWORD'],
-            database=os.environ['MYSQLDATABASE'],
-            port=int(os.environ['MYSQLPORT']),
-            connect_timeout=30,
-            autocommit=True
-        )
-        print("✅ Database connected successfully!")
-        return conn
-    except mysql.connector.Error as e:
-        print(f"❌ Database connection failed: {e}")
-        print(f"   Host: {os.environ.get('MYSQLHOST')}")
-        print(f"   Database: {os.environ.get('MYSQLDATABASE')}")
-        return None
-    except KeyError as e:
-        print(f"❌ Missing environment variable: {e}")
-        return None
-=======
-    # FORCE MySQL usage on Railway
-    mysql_host = os.environ.get('MYSQLHOST')
-    mysql_user = os.environ.get('MYSQLUSER')
-    mysql_password = os.environ.get('MYSQLPASSWORD')
-    mysql_database = os.environ.get('MYSQLDATABASE')
-    
-    print(f"🔍 DATABASE CONFIG:")
-    print(f"   MYSQLHOST: {mysql_host}")
-    print(f"   MYSQLUSER: {mysql_user}")
-    print(f"   MYSQLDATABASE: {mysql_database}")
-    print(f"   MYSQLPASSWORD: {'[SET]' if mysql_password else '[NOT SET]'}")
-    
-    # Try MySQL (required for Railway)
-    if all([mysql_host, mysql_user, mysql_password, mysql_database]):
-        try:
-            conn = mysql.connector.connect(
-                host=mysql_host,
-                user=mysql_user,
-                password=mysql_password,
-                database=mysql_database,
-                port=os.environ.get('MYSQLPORT', '3306'),
-                connection_timeout=10
-            )
-            print("✅ Connected to MySQL database on Railway")
-            
-            # Initialize MySQL tables
-            cursor = conn.cursor()
-            
-            # Create users table if not exists
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS users (
-                    id INT AUTO_INCREMENT PRIMARY KEY,
-                    username VARCHAR(255) UNIQUE NOT NULL,
-                    email VARCHAR(255) UNIQUE NOT NULL,
-                    password_hash VARCHAR(255) NOT NULL,
-                    role VARCHAR(50) DEFAULT 'faculty',
-                    approved BOOLEAN DEFAULT FALSE,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    last_login TIMESTAMP NULL,
-                    full_name VARCHAR(255),
-                    department VARCHAR(255)
-                )
-            ''')
-            
-            # Create test users
-            test_users = [
-                ('iqac_admin', 'iqac.admin@pragati.ac.in', 'Admin123', 'IQAC', 1),
-                ('office_user', 'office@pragati.ac.in', 'office123', 'Office', 1),
-                ('faculty_user', 'faculty@pragati.ac.in', 'faculty123', 'Faculty', 1)
-            ]
-            
-            for username, email, password, role, approved in test_users:
-                try:
-                    cursor.execute(
-                        'INSERT IGNORE INTO users (username, email, password_hash, role, approved) VALUES (%s, %s, %s, %s, %s)',
-                        (username, email, password, role, approved)
-                    )
-                except Exception as e:
-                    print(f"⚠️  Could not create user {username}: {e}")
-            
-            conn.commit()
-            cursor.close()
-            
-            return {'conn': conn, 'type': 'mysql'}
-            
-        except Exception as e:
-            print(f"❌ MySQL connection failed: {e}")
-            # Don't fallback to SQLite on Railway - we want to know if MySQL fails
-            return None
-    else:
-        print("❌ MySQL environment variables not set. Please add MySQL database on Railway.")
-        return None
-@app.route('/db-status')
-def db_status():
-    """Check database connection status"""
-    mysql_host = os.environ.get('MYSQLHOST')
-    mysql_user = os.environ.get('MYSQLUSER')
-    mysql_database = os.environ.get('MYSQLDATABASE')
-    
-    status = {
-        "mysql_configured": all([mysql_host, mysql_user, mysql_database]),
-        "environment_variables": {
-            "MYSQLHOST": mysql_host,
-            "MYSQLUSER": mysql_user, 
-            "MYSQLDATABASE": mysql_database,
-            "MYSQLPASSWORD": "***" if os.environ.get('MYSQLPASSWORD') else "NOT SET"
-        }
-    }
-    
-    # Test connection
-    connection_info = get_db_connection()
-    if connection_info:
-        conn = connection_info['conn']
-        cursor = conn.cursor()
-        cursor.execute('SELECT COUNT(*) as user_count FROM users')
-        result = cursor.fetchone()
-        status['connection_test'] = 'SUCCESS'
-        status['user_count'] = result['user_count'] if connection_info['type'] == 'mysql' else result[0]
-        cursor.close()
-        conn.close()
-    else:
-        status['connection_test'] = 'FAILED'
-    
-    return jsonify(status)        
-def execute_query(connection_info, query, params=None):
-    """Execute query and return results as dictionaries"""
-    if connection_info is None:
-        return []
-    
-    conn = connection_info['conn']
-    db_type = connection_info['type']
-    
-    try:
-        cursor = get_cursor(connection_info)
-        
-        if params:
-            cursor.execute(query, params)
-        else:
-            cursor.execute(query)
-            
-        results = cursor.fetchall()
-        
-        # Convert to list of dictionaries for consistent access
-        if db_type == 'sqlite':
-            results = [dict(row) for row in results]
-        
-        cursor.close()
-        return results
-        
-    except Exception as e:
-        print(f"❌ Query execution failed: {e}")
-        return []
-def get_cursor(connection_info):
-    """Get appropriate cursor based on database type"""
-    if connection_info is None:
-        return None
-        
-    conn = connection_info['conn']
-    db_type = connection_info['type']
-    
-    if db_type == 'mysql':
-        return conn.cursor(dictionary=True)
-    else:  # sqlite
-        return conn.cursor()
-def init_database():
-    """Create necessary tables if they don't exist"""
-    try:
-        connection_info = get_db_connection()
-        if connection_info is None:
-            print("❌ Database initialization failed: No connection")
-            return
-            
-        conn = connection_info['conn']
-        db_type = connection_info['type']
-        
-        cursor = get_cursor(connection_info)
-        
-        if db_type == 'mysql':
-            # MySQL table creation
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS users (
-                    id INT AUTO_INCREMENT PRIMARY KEY,
-                    username VARCHAR(255) UNIQUE NOT NULL,
-                    email VARCHAR(255) UNIQUE NOT NULL,
-                    password_hash VARCHAR(255) NOT NULL,
-                    role VARCHAR(50) DEFAULT 'faculty',
-                    approved BOOLEAN DEFAULT FALSE,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    last_login TIMESTAMP NULL,
-                    full_name VARCHAR(255),
-                    department VARCHAR(255)
-                )
-            ''')
-            
-            # Add other MySQL tables here as needed
-            # cursor.execute('CREATE TABLE IF NOT EXISTS faculty (...)')
-            
-        else:  # sqlite
-            # SQLite table creation
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS users (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    username TEXT UNIQUE NOT NULL,
-                    email TEXT UNIQUE NOT NULL,
-                    password_hash TEXT NOT NULL,
-                    role TEXT DEFAULT 'faculty',
-                    approved BOOLEAN DEFAULT FALSE,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    last_login TIMESTAMP NULL,
-                    full_name TEXT,
-                    department TEXT
-                )
-            ''')
-            
-            # Add other SQLite tables here as needed
-            # cursor.execute('CREATE TABLE IF NOT EXISTS faculty (...)')
-        
-        conn.commit()
-        cursor.close()
-        conn.close()
-        print("✅ Database tables initialized successfully!")
-        
-    except Exception as e:
-        print(f"❌ Database initialization failed: {e}")
-def with_db_connection(func):
-    """Decorator to handle database connections automatically"""
-    def wrapper(*args, **kwargs):
-        connection_info = get_db_connection()
-        if connection_info is None:
-            return None
-        try:
-            return func(connection_info, *args, **kwargs)
-        finally:
-            if 'conn' in connection_info:
-                connection_info['conn'].close()
-    return wrapper
+    return mysql.connector.connect(
+        host='localhost',
+        user='root',
+        password='Root123!',
+        database='faculty_portal'
+    )
 
-# Example usage:
-@with_db_connection
-def get_user_by_email(connection_info, email):
-    cursor = get_cursor(connection_info)
-    if connection_info['type'] == 'sqlite':
-        cursor.execute('SELECT * FROM users WHERE email = ?', (email,))
-    else:
-        cursor.execute('SELECT * FROM users WHERE email = %s', (email,))
-    user = cursor.fetchone()
-    cursor.close()
-    
-    if user and connection_info['type'] == 'sqlite':
-        return dict(user)
-    return user        
->>>>>>> 15cea06d119de5a2b47b07025cfe94199e2742b4
 def login_required(f):
     """Decorator to require login for routes"""
     from functools import wraps
@@ -377,201 +129,8 @@ def check_publication_access(faculty_id):
         
         return faculty and faculty['email'] == user_email
     
-    return False   
-@app.route('/verify-users')
-def verify_users():
-    """Verify that test users exist"""
-    connection_info = get_db_connection()
-    if connection_info is None:
-        return "No database connection"
-    
-    conn = connection_info['conn']
-    db_type = connection_info['type']
-    
-    cursor = get_cursor(connection_info)
-    
-    # Get all users
-    if db_type == 'sqlite':
-        cursor.execute('SELECT id, username, email, role, approved FROM users')
-    else:
-        cursor.execute('SELECT id, username, email, role, approved FROM users')
-    
-    users = cursor.fetchall()
-    
-    if db_type == 'sqlite':
-        users = [dict(user) for user in users]
-    
-    cursor.close()
-    conn.close()
-    
-    result = "<h2>Existing Users:</h2>"
-    if not users:
-        result += "<p>No users found in database</p>"
-    else:
-        for user in users:
-            result += f"<p><strong>{user['username']}</strong> ({user['email']}) - Role: {user['role']} - Approved: {user['approved']}</p>"
-    
-    result += "<h3>Test Login Credentials:</h3>"
-    result += "<ul>"
-    result += "<li><strong>iqac_admin</strong> / iqac.admin@pragati.ac.in / Admin123</li>"
-    result += "<li><strong>office_user</strong> / office@pragati.ac.in / office123</li>"
-    result += "<li><strong>faculty_user</strong> / faculty@pragati.ac.in / faculty123</li>"
-    result += "</ul>"
-    
-    return result
-@app.route('/reset-db')
-def reset_db():
-    """Reset database and create test users (for development only)"""
-    try:
-        # Delete existing database file
-        sqlite_path = '/tmp/faculty_portal.db' if os.path.exists('/tmp') else 'faculty_portal.db'
-        if os.path.exists(sqlite_path):
-            os.remove(sqlite_path)
-            print(f"🗑️  Deleted existing database: {sqlite_path}")
-        
-        # Recreate connection (which will create new database with test users)
-        connection_info = get_db_connection()
-        if connection_info:
-            conn = connection_info['conn']
-            conn.close()
-            return "✅ Database reset successfully! Test users have been created."
-        else:
-            return "❌ Failed to reset database"
-            
-    except Exception as e:
-        return f"❌ Error resetting database: {str(e)}"    
-@app.route('/debug-db-users')
-def debug_db_users():
-    """Debug route to see all users in database"""
-    connection_info = get_db_connection()
-    if connection_info is None:
-        return "No database connection"
-    
-    conn = connection_info['conn']
-    db_type = connection_info['type']
-    
-    cursor = get_cursor(connection_info)
-    
-    # Get all users
-    if db_type == 'sqlite':
-        cursor.execute('SELECT * FROM users')
-    else:
-        cursor.execute('SELECT * FROM users')
-    
-    users = cursor.fetchall()
-    
-    result = f"<h2>Database Type: {db_type}</h2>"
-    result += f"<h3>Total Users: {len(users)}</h3>"
-    
-    for user in users:
-        if db_type == 'sqlite':
-            user_dict = dict(user)
-        else:
-            user_dict = user
-        result += f"<pre>{user_dict}</pre><hr>"
-    
-    cursor.close()
-    conn.close()
-    return result
-@app.route('/register-test', methods=['GET', 'POST'])
-def register_test():
-    """Test registration route to create a user"""
-    if request.method == 'POST':
-        username = request.form['username']
-        email = request.form['email']
-        password = request.form['password']
-        role = request.form.get('role', 'IQAC')
-        
-        connection_info = get_db_connection()
-        if connection_info is None:
-            return "No database connection"
-        
-        conn = connection_info['conn']
-        db_type = connection_info['type']
-        
-        try:
-            cursor = get_cursor(connection_info)
-            
-            # Check if user already exists
-            if db_type == 'sqlite':
-                cursor.execute('SELECT id FROM users WHERE username = ? OR email = ?', (username, email))
-            else:
-                cursor.execute('SELECT id FROM users WHERE username = %s OR email = %s', (username, email))
-            
-            existing_user = cursor.fetchone()
-            
-            if existing_user:
-                return "User already exists!"
-            
-            # Create new user
-            if db_type == 'sqlite':
-                cursor.execute('''
-                    INSERT INTO users (username, email, password_hash, role, approved) 
-                    VALUES (?, ?, ?, ?, ?)
-                ''', (username, email, password, role, 1))
-            else:
-                cursor.execute('''
-                    INSERT INTO users (username, email, password_hash, role, approved) 
-                    VALUES (%s, %s, %s, %s, %s)
-                ''', (username, email, password, role, 1))
-            
-            conn.commit()
-            cursor.close()
-            conn.close()
-            
-            return f"✅ User '{username}' created successfully!<br>You can now login with:<br>Username: {username}<br>Email: {email}<br>Password: {password}"
-            
-        except Exception as e:
-            return f"Error: {str(e)}"
-    
-    # GET request - show form
-    return '''
-    <form method="POST">
-        <h3>Create Test User</h3>
-        Username: <input type="text" name="username" value="iqac_admin" required><br>
-        Email: <input type="email" name="email" value="iqac.admin@pragati.ac.in" required><br>
-        Password: <input type="password" name="password" value="admin123" required><br>
-        Role: 
-        <select name="role">
-            <option value="IQAC">IQAC</option>
-            <option value="Office">Office</option>
-            <option value="Faculty">Faculty</option>
-        </select><br>
-        <input type="submit" value="Create User">
-    </form>
-    '''    
-@app.route('/test-db')
-def test_db():
-    """Test database connection and basic functionality"""
-    try:
-        connection_info = get_db_connection()
-        if connection_info is None:
-            return jsonify({"status": "error", "message": "No database connection"})
-        
-        conn = connection_info['conn']
-        db_type = connection_info['type']
-        
-        cursor = get_cursor(connection_info)
-        
-        # Test query
-        if db_type == 'sqlite':
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-        else:
-            cursor.execute("SHOW TABLES")
-        
-        tables = cursor.fetchall()
-        
-        cursor.close()
-        conn.close()
-        
-        return jsonify({
-            "status": "success",
-            "database_type": db_type,
-            "tables": [dict(table) for table in tables] if db_type == 'mysql' else [table[0] for table in tables]
-        })
-        
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)})
+    return False      
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -579,133 +138,92 @@ def login():
         email = request.form['email'].strip()
         password = request.form['password']
         
-        print(f"🔍 LOGIN ATTEMPT: username='{username}', email='{email}', password='{password}'")
+        print(f"🔍 LOGIN ATTEMPT: username='{username}', email='{email}'")
         
-        connection_info = get_db_connection()
-        if connection_info is None:
-            print("❌ LOGIN FAILED: No database connection")
-            flash('❌ Database connection failed. Please try again later.', 'error')
-            return render_template('login.html')
-        
-        conn = connection_info['conn']
-        db_type = connection_info['type']
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
         
         try:
-            cursor = get_cursor(connection_info)
-            
-            # DEBUG: Show all users in database
-            print("🔍 DEBUG: Checking all users in database...")
-            if db_type == 'sqlite':
-                cursor.execute('SELECT username, email, password_hash FROM users')
-            else:
-                cursor.execute('SELECT username, email, password_hash FROM users')
-            
-            all_users = cursor.fetchall()
-            print(f"🔍 DEBUG: Total users in database: {len(all_users)}")
-            for user in all_users:
-                if db_type == 'sqlite':
-                    user_dict = dict(user)
-                else:
-                    user_dict = user
-                print(f"🔍 DEBUG: User - {user_dict['username']} / {user_dict['email']} / {user_dict['password_hash']}")
-            
-            # Use appropriate query based on database type
-            print(f"🔍 DEBUG: Executing login query for {username} / {email}")
-            if db_type == 'sqlite':
-                cursor.execute('SELECT * FROM users WHERE username = ? AND email = ? AND password_hash = ?', 
-                              (username, email, password))
-            else:
-                cursor.execute('SELECT * FROM users WHERE username = %s AND email = %s AND password_hash = %s', 
-                              (username, email, password))
-            
+            # ✅ REQUIRE BOTH USERNAME AND EMAIL TO MATCH
+            cursor.execute('SELECT * FROM users WHERE username = %s AND email = %s AND password_hash = %s', 
+                          (username, email, password))
             user = cursor.fetchone()
-            print(f"🔍 USER QUERY RESULT: {user}")
             
             if user:
-                # Convert to dictionary for consistent access
-                if db_type == 'sqlite':
-                    user_dict = dict(user)
-                else:
-                    user_dict = user
-                
-                print(f"🔍 USER FOUND: {user_dict}")
-                
-                if not user_dict['approved']:
-                    print(f"🔍 LOGIN FAILED: User not approved")
+                if not user['approved']:
+                    print(f"🔍 LOGIN FAILED: User '{user['username']}' not approved")
                     cursor.close()
                     conn.close()
-                    flash('⏳ Account pending admin approval.', 'error')
-                    return render_template('login.html')
+                    flash('⏳ Account pending admin approval. Please wait for IQAC approval.', 'error')
+                    return render_template('login.html', error='⏳ Account pending admin approval. Please wait for IQAC approval.')
                 
-                # Successful login
-                session['user_id'] = user_dict['id']
-                session['username'] = user_dict['username']
-                session['email'] = user_dict['email']
-                session['role'] = user_dict['role']
+                # ✅ SUCCESSFUL LOGIN
+                session['user_id'] = user['id']
+                session['username'] = user['username']
+                session['email'] = user['email']
+                session['role'] = user['role']
                 session['logged_in'] = True
                 
-                print(f"🔍 SESSION SET: {dict(session)}")
-                
                 # Update last login
-                if db_type == 'sqlite':
-                    cursor.execute('UPDATE users SET last_login = datetime("now") WHERE id = ?', (user_dict['id'],))
-                else:
-                    cursor.execute('UPDATE users SET last_login = NOW() WHERE id = %s', (user_dict['id'],))
-                
+                cursor.execute('UPDATE users SET last_login = NOW() WHERE id = %s', (user['id'],))
                 conn.commit()
+                
+                print(f"🔍 LOGIN SUCCESS: User '{user['username']}' logged in as '{user['role']}'")
                 cursor.close()
                 conn.close()
                 
-                print("🔍 LOGIN SUCCESS: Redirecting to /")
-                flash(f'✅ Welcome back, {user_dict["username"]}!', 'success')
+                flash(f'✅ Welcome back, {user["username"]}!', 'success')
                 return redirect('/')
             else:
-                print("🔍 LOGIN FAILED: No user found or invalid credentials")
-                # Debug: Check if username/email exist separately
-                if db_type == 'sqlite':
-                    cursor.execute('SELECT username FROM users WHERE username = ?', (username,))
-                    user_exists = cursor.fetchone()
-                    cursor.execute('SELECT email FROM users WHERE email = ?', (email,))
-                    email_exists = cursor.fetchone()
+                # ✅ CHECK WHAT WENT WRONG FOR BETTER ERROR MESSAGES
+                cursor.execute('SELECT username, email FROM users WHERE username = %s AND email = %s', 
+                              (username, email))
+                user_exists = cursor.fetchone()
+                
+                if user_exists:
+                    # Username and email match but wrong password
+                    print(f"🔍 LOGIN FAILED: Wrong password for user '{username}'")
+                    cursor.close()
+                    conn.close()
+                    flash('❌ Invalid password. Please try again.', 'error')
+                    return render_template('login.html', error='❌ Invalid password. Please try again.', 
+                                         form_data={'username': username, 'email': email})
                 else:
+                    # Check if username exists but email doesn't match
                     cursor.execute('SELECT username FROM users WHERE username = %s', (username,))
-                    user_exists = cursor.fetchone()
+                    username_exists = cursor.fetchone()
+                    
                     cursor.execute('SELECT email FROM users WHERE email = %s', (email,))
                     email_exists = cursor.fetchone()
-                
-                print(f"🔍 DEBUG: Username exists: {user_exists}, Email exists: {email_exists}")
-                
-                cursor.close()
-                conn.close()
-                flash('❌ Invalid credentials! Please check username, email and password.', 'error')
-                return render_template('login.html', 
-                                     form_data={'username': username, 'email': email})
-                
+                    
+                    cursor.close()
+                    conn.close()
+                    
+                    if username_exists and email_exists:
+                        error_msg = '❌ Username and email combination is incorrect.'
+                    elif username_exists:
+                        error_msg = '❌ Email does not match this username.'
+                    elif email_exists:
+                        error_msg = '❌ Username does not match this email.'
+                    else:
+                        error_msg = '❌ Username and email not found.'
+                    
+                    print(f"🔍 LOGIN FAILED: {error_msg}")
+                    flash(error_msg, 'error')
+                    return render_template('login.html', error=error_msg, 
+                                         form_data={'username': username, 'email': email})
+                    
         except Exception as e:
             print(f"🔍 LOGIN ERROR: {str(e)}")
-            import traceback
-            print(f"🔍 TRACEBACK: {traceback.format_exc()}")
-            if 'conn' in locals():
+            if 'conn' in locals() and conn.is_connected():
                 cursor.close()
                 conn.close()
-            flash('❌ System error. Please try again.', 'error')
-            return render_template('login.html')
+            flash('❌ System error. Please try again later.', 'error')
+            return render_template('login.html', error='❌ System error. Please try again later.',
+                                 form_data={'username': username, 'email': email})
     
     return render_template('login.html')
-@app.route('/force-reset')
-def force_reset():
-    """Force reset the database (development only)"""
-    try:
-        import os
-        sqlite_path = '/tmp/faculty_portal.db' if os.path.exists('/tmp') else 'faculty_portal.db'
-        
-        if os.path.exists(sqlite_path):
-            os.remove(sqlite_path)
-            return f"✅ Database file {sqlite_path} deleted. Restart the app to recreate."
-        else:
-            return f"✅ Database file {sqlite_path} doesn't exist. It will be created on next login."
-    except Exception as e:
-        return f"❌ Error: {str(e)}"    
+
 @app.route('/logout')
 def logout():
     session.clear()
@@ -789,15 +307,7 @@ def register():
     
     print("🔍 REGISTRATION DEBUG: GET request for registration form")
     return render_template('register.html', form_data={})
-@app.route('/debug-session')
-def debug_session():
-    """Debug session information"""
-    return jsonify({
-        'session_data': dict(session),
-        'logged_in': session.get('logged_in', False),
-        'username': session.get('username'),
-        'user_id': session.get('user_id')
-    })
+
 @app.route('/')
 @login_required
 def index():
@@ -4407,7 +3917,7 @@ def rd_download_excel():
         from datetime import datetime
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"rd_{publication_type}_publications_{timestamp}.xlsx"
-    
+        
         return send_file(
             excel_buffer,
             as_attachment=True,
@@ -4417,43 +3927,7 @@ def rd_download_excel():
         
     except Exception as e:
         flash(f'❌ Error generating Excel file: {str(e)}', 'error')
-        return redirect(f'/rd/publications?type={publication_type}')   
-@app.route('/debug-db')
-def debug_db():
-    """Debug database connection"""
-    try:
-        env_info = {
-            'MYSQLHOST': os.environ.get('MYSQLHOST'),
-            'MYSQLUSER': os.environ.get('MYSQLUSER'),
-            'MYSQLDATABASE': os.environ.get('MYSQLDATABASE'),
-            'MYSQLPORT': os.environ.get('MYSQLPORT'),
-            'MYSQL_URL': os.environ.get('MYSQL_URL')[:50] + '...' if os.environ.get('MYSQL_URL') else None
-        }
-        
-        conn = get_db_connection()
-        if conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT 1 as test")
-            result = cursor.fetchone()
-            cursor.close()
-            conn.close()
-            return jsonify({
-                "status": "success", 
-                "database_test": result,
-                "environment": env_info
-            })
-        else:
-            return jsonify({
-                "status": "error", 
-                "message": "Database connection failed",
-                "environment": env_info
-            })
-    except Exception as e:
-        return jsonify({
-            "status": "error", 
-            "message": str(e),
-            "environment": env_info
-        })                 
+        return redirect(f'/rd/publications?type={publication_type}')            
 if __name__ == '__main__':
     print("🚀 Faculty Portal Starting...")
     app.run(debug=True, host='0.0.0.0', port=5000)
