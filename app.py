@@ -3,7 +3,8 @@ import datetime
 import os
 import io
 from werkzeug.utils import secure_filename
-import psycopg   # CHANGED FROM mysql.connector
+import sqlite3
+import os
 import openpyxl
 from openpyxl.styles import Font, Alignment
 from utils import get_department_stats, get_gender_stats, get_appointment_stats, get_experience_stats, get_designation_stats
@@ -13,13 +14,8 @@ MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
 
 def get_db_connection():
     try:
-        database_url = os.environ.get('DATABASE_URL')
-        if database_url:
-            if database_url.startswith('postgres://'):
-                database_url = database_url.replace('postgres://', 'postgresql://', 1)
-            conn = psycopg.connect(database_url)  # CHANGED from psycopg2.connect
-            return conn
-        return None
+        conn = sqlite3.connect('faculty_portal.db')
+        return conn
     except Exception as e:
         print(f"Database connection error: {e}")
         return None
