@@ -3,7 +3,7 @@ import datetime
 import os
 import io
 from werkzeug.utils import secure_filename
-import psycopg   # CHANGED FROM mysql.connector
+import psycopg2   # CHANGED FROM mysql.connector
 import openpyxl
 from openpyxl.styles import Font, Alignment
 from utils import get_department_stats, get_gender_stats, get_appointment_stats, get_experience_stats, get_designation_stats
@@ -17,7 +17,7 @@ def get_db_connection():
         if database_url:
             if database_url.startswith('postgres://'):
                 database_url = database_url.replace('postgres://', 'postgresql://', 1)
-            conn = psycopg.connect(database_url)
+            conn = psycopg2.connect(database_url)
             return conn
         return None
     except Exception as e:
