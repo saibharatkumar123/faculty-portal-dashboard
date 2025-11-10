@@ -72,7 +72,8 @@ def can_edit_publications(faculty_id):
     if user_role in ['IQAC', 'Office']:
         # Check if this is their own faculty record
         conn = get_db_connection()
-        cursor = conn.cursor() cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
+        cursor = conn.cursor() 
+        cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
         cursor.execute('SELECT email FROM faculty WHERE id = %s', (faculty_id,))
         faculty = cursor.fetchone()
         cursor.close()
@@ -85,7 +86,8 @@ def can_edit_publications(faculty_id):
     # Faculty can only edit their own
     elif user_role == 'Faculty':
         conn = get_db_connection()
-        cursor = conn.cursor() cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
+        cursor = conn.cursor() 
+        cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
         cursor.execute('SELECT email FROM faculty WHERE id = %s', (faculty_id,))
         faculty = cursor.fetchone()
         cursor.close()
@@ -104,7 +106,8 @@ def check_publication_access(faculty_id):
     if user_role in ['IQAC(admin)', 'Office']:
         # Check if this is their own faculty record
         conn = get_db_connection()
-        cursor = conn.cursor() cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
+        cursor = conn.cursor() 
+        cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
         cursor.execute('SELECT email FROM faculty WHERE id = %s', (faculty_id,))
         faculty = cursor.fetchone()
         cursor.close()
@@ -117,7 +120,8 @@ def check_publication_access(faculty_id):
     # Faculty can only edit their own
     elif user_role == 'Faculty':
         conn = get_db_connection()
-        cursor = conn.cursor() cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
+        cursor = conn.cursor() 
+        cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
         cursor.execute('SELECT email FROM faculty WHERE id = %s', (faculty_id,))
         faculty = cursor.fetchone()
         cursor.close()
@@ -137,7 +141,8 @@ def login():
         print(f"🔍 LOGIN ATTEMPT: username='{username}', email='{email}'")
         
         conn = get_db_connection()
-        cursor = conn.cursor() cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
+        cursor = conn.cursor() 
+        cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
         
         try:
             # ✅ REQUIRE BOTH USERNAME AND EMAIL TO MATCH
@@ -242,7 +247,8 @@ def register():
         approved = False
         
         conn = get_db_connection()
-        cursor = conn.cursor() cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
+        cursor = conn.cursor() 
+        cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
         
         try:
             # ✅ ONLY CHECK: Duplicate EMAIL (email must be unique)
@@ -307,7 +313,8 @@ def register():
 @login_required
 def index():
     conn = get_db_connection()
-    cursor = conn.cursor() cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
+    cursor = conn.cursor() 
+    cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
     
     # BASIC STATISTICS - FOR ALL USERS
     cursor.execute('SELECT COUNT(*) as total FROM faculty')
@@ -426,7 +433,8 @@ def index():
 @login_required
 def faculty_list():
     conn = get_db_connection()
-    cursor = conn.cursor() cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
+    cursor = conn.cursor() 
+    cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
     
     # Get search and filter parameters
     search = request.args.get('search', '')
@@ -521,7 +529,8 @@ def add_faculty():
             
             # ✅ CHECK FOR DUPLICATE EMPLOYEE ID BEFORE PROCESSING
             conn = get_db_connection()
-            cursor = conn.cursor() cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
+            cursor = conn.cursor() 
+            cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
             cursor.execute('SELECT id, name_ssc FROM faculty WHERE employee_id = %s', (employee_id,))
             existing_employee = cursor.fetchone()
             if existing_employee:
@@ -752,7 +761,8 @@ def edit_faculty(faculty_id):
             
             # ✅ CHECK FOR DUPLICATE EMPLOYEE ID (excluding current faculty)
             conn = get_db_connection()
-            cursor = conn.cursor() cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
+            cursor = conn.cursor() 
+            cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
             cursor.execute('SELECT id, name_ssc FROM faculty WHERE employee_id = %s AND id != %s', (employee_id, faculty_id))
             existing_employee = cursor.fetchone()
             if existing_employee:
@@ -978,7 +988,8 @@ def edit_faculty(faculty_id):
     # GET request - load existing data
     try:
         conn = get_db_connection()
-        cursor = conn.cursor() cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
+        cursor = conn.cursor() 
+        cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
         cursor.execute('SELECT * FROM faculty WHERE id = %s', (faculty_id,))
         faculty = cursor.fetchone()
         cursor.close()
@@ -1000,7 +1011,8 @@ def delete_faculty(faculty_id):
     try:
         # First check if faculty exists
         conn = get_db_connection()
-        cursor = conn.cursor() cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
+        cursor = conn.cursor()
+        cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
         cursor.execute('SELECT name_ssc FROM faculty WHERE id = %s', (faculty_id,))
         faculty = cursor.fetchone()
         
@@ -1037,7 +1049,8 @@ def delete_faculty(faculty_id):
 @login_required
 def view_qualifications(faculty_id):
     conn = get_db_connection()
-    cursor = conn.cursor() cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
+    cursor = conn.cursor() 
+    cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
     
     # Get faculty details
     cursor.execute('SELECT * FROM faculty WHERE id = %s', (faculty_id,))
@@ -1083,7 +1096,8 @@ def add_qualification(faculty_id):
 @login_required
 def delete_qualification(qualification_id):
     conn = get_db_connection()
-    cursor = conn.cursor() cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
+    cursor = conn.cursor() 
+    cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
     
     # Get faculty_id before deleting
     cursor.execute('SELECT faculty_id FROM qualifications WHERE id = %s', (qualification_id,))
@@ -1103,7 +1117,8 @@ def delete_qualification(qualification_id):
 @login_required
 def view_faculty(faculty_id):
     conn = get_db_connection()
-    cursor = conn.cursor() cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
+    cursor = conn.cursor() 
+    cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
     
     # Get faculty details
     cursor.execute('SELECT * FROM faculty WHERE id = %s', (faculty_id,))
@@ -1127,7 +1142,8 @@ def view_faculty(faculty_id):
 @login_required
 def department_details(department_name):
     conn = get_db_connection()
-    cursor = conn.cursor() cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
+    cursor = conn.cursor() 
+    cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
     
     # 🔒 FOR FACULTY USERS: Check if they have a profile in this department
     if get_user_role() == 'Faculty':
@@ -1197,7 +1213,8 @@ def department_details(department_name):
 @login_required
 def experience_details(experience_category):
     conn = get_db_connection()
-    cursor = conn.cursor() cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
+    cursor = conn.cursor() 
+    cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
     
     # 🔒 FOR FACULTY USERS: Check if they belong to this experience category
     if get_user_role() == 'Faculty':
@@ -1271,7 +1288,8 @@ def experience_details(experience_category):
 @login_required
 def designation_details(designation_name):
     conn = get_db_connection()
-    cursor = conn.cursor() cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
+    cursor = conn.cursor() 
+    cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
     
     # 🔒 FOR FACULTY USERS: Check if they have this designation
     if get_user_role() == 'Faculty':
@@ -1368,7 +1386,8 @@ def manage_users():
         return redirect('/')
     
     conn = get_db_connection()
-    cursor = conn.cursor() cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
+    cursor = conn.cursor() 
+    cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
     cursor.execute('SELECT * FROM users ORDER BY approved ASC, role, username')
     users = cursor.fetchall()
     
@@ -1431,7 +1450,8 @@ def approve_users():
         return redirect('/')
     
     conn = get_db_connection()
-    cursor = conn.cursor() cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
+    cursor = conn.cursor() 
+    cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
     cursor.execute('SELECT * FROM users WHERE approved = FALSE ORDER BY created_at DESC')
     pending_users = cursor.fetchall()
     cursor.close()
@@ -1549,7 +1569,8 @@ def download_faculty_excel():
 
         # Fetch data
         conn = get_db_connection()
-        cursor = conn.cursor() cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
+        cursor = conn.cursor() 
+        cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
         cursor.execute(query, params)
         faculty_data = cursor.fetchall()
         
@@ -1758,7 +1779,8 @@ def download_faculty_single(faculty_id):
     try:
         # Fetch single faculty data
         conn = get_db_connection()
-        cursor = conn.cursor() cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
+        cursor = conn.cursor() 
+        cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
         cursor.execute('SELECT * FROM faculty WHERE id = %s', (faculty_id,))
         faculty = cursor.fetchone()
         
@@ -1910,7 +1932,8 @@ def download_faculty_single(faculty_id):
 def view_publications(faculty_id):
     # Access control: Anyone can view, but editing restricted
     conn = get_db_connection()
-    cursor = conn.cursor() cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
+    cursor = conn.cursor() 
+    cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
     
     # Get faculty details
     cursor.execute('SELECT * FROM faculty WHERE id = %s', (faculty_id,))
@@ -2005,7 +2028,8 @@ def add_journal_publication(faculty_id):
 def delete_journal(journal_id):
     try:
         conn = get_db_connection()
-        cursor = conn.cursor() cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
+        cursor = conn.cursor() 
+        cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
         
         # Get faculty_id before deleting
         cursor.execute('SELECT faculty_id FROM journal_publications WHERE id = %s', (journal_id,))
@@ -2089,7 +2113,8 @@ def add_conference_publication(faculty_id):
 def delete_conference(conference_id):
     try:
         conn = get_db_connection()
-        cursor = conn.cursor() cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
+        cursor = conn.cursor() 
+        cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
         
         # Get faculty_id before deleting
         cursor.execute('SELECT faculty_id FROM conference_publications WHERE id = %s', (conference_id,))
@@ -2170,7 +2195,8 @@ def add_book_chapter(faculty_id):
 def delete_book_chapter(chapter_id):
     try:
         conn = get_db_connection()
-        cursor = conn.cursor() cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
+        cursor = conn.cursor() 
+        cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
         
         # Get faculty_id before deleting
         cursor.execute('SELECT faculty_id FROM book_chapters WHERE id = %s', (chapter_id,))
@@ -2256,7 +2282,8 @@ def add_patent(faculty_id):
 def delete_patent(patent_id):
     try:
         conn = get_db_connection()
-        cursor = conn.cursor() cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
+        cursor = conn.cursor() 
+        cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
         
         # Get faculty_id before deleting
         cursor.execute('SELECT faculty_id FROM patents WHERE id = %s', (patent_id,))
@@ -2288,7 +2315,8 @@ def delete_patent(patent_id):
 @login_required
 def view_journal(journal_id):
     conn = get_db_connection()
-    cursor = conn.cursor() cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
+    cursor = conn.cursor() 
+    cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
     
     cursor.execute('''
         SELECT j.*, f.name_ssc, f.department as faculty_department 
@@ -2311,7 +2339,8 @@ def view_journal(journal_id):
 @login_required
 def view_conference(conference_id):
     conn = get_db_connection()
-    cursor = conn.cursor() cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
+    cursor = conn.cursor() 
+    cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
     
     cursor.execute('''
         SELECT c.*, f.name_ssc, f.department as faculty_department 
@@ -2334,7 +2363,8 @@ def view_conference(conference_id):
 @login_required
 def view_book_chapter(chapter_id):
     conn = get_db_connection()
-    cursor = conn.cursor() cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
+    cursor = conn.cursor() 
+    cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
     
     cursor.execute('''
         SELECT b.*, f.name_ssc, f.department as faculty_department 
@@ -2357,7 +2387,8 @@ def view_book_chapter(chapter_id):
 @login_required
 def view_patent(patent_id):
     conn = get_db_connection()
-    cursor = conn.cursor() cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
+    cursor = conn.cursor() 
+    cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
     
     cursor.execute('''
         SELECT p.*, f.name_ssc, f.department as faculty_department 
@@ -2385,7 +2416,8 @@ def view_patent(patent_id):
 def download_journals(faculty_id):
     try:
         conn = get_db_connection()
-        cursor = conn.cursor() cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
+        cursor = conn.cursor()
+        cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
         
         cursor.execute('''
             SELECT j.*, f.name_ssc as faculty_name, f.department as faculty_department
@@ -2479,7 +2511,8 @@ def download_journals(faculty_id):
 def download_conferences(faculty_id):
     try:
         conn = get_db_connection()
-        cursor = conn.cursor() cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
+        cursor = conn.cursor() 
+        cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
         
         cursor.execute('''
             SELECT c.*, f.name_ssc as faculty_name, f.department as faculty_department
@@ -2569,7 +2602,8 @@ def download_conferences(faculty_id):
 def download_book_chapters(faculty_id):
     try:
         conn = get_db_connection()
-        cursor = conn.cursor() cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
+        cursor = conn.cursor() 
+        cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
         
         cursor.execute('''
             SELECT b.*, f.name_ssc as faculty_name, f.department as faculty_department
@@ -2657,7 +2691,8 @@ def download_book_chapters(faculty_id):
 def download_patents(faculty_id):
     try:
         conn = get_db_connection()
-        cursor = conn.cursor() cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
+        cursor = conn.cursor() 
+        cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
         
         cursor.execute('''
             SELECT p.*, f.name_ssc as faculty_name, f.department as faculty_department
@@ -2751,7 +2786,8 @@ def download_patents(faculty_id):
 def edit_journal(journal_id):
     try:
         conn = get_db_connection()
-        cursor = conn.cursor() cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
+        cursor = conn.cursor() 
+        cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
         
         # Get journal details with faculty info
         cursor.execute('''
@@ -2829,7 +2865,8 @@ def edit_journal(journal_id):
 def edit_conference(conference_id):
     try:
         conn = get_db_connection()
-        cursor = conn.cursor() cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
+        cursor = conn.cursor() 
+        cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
         
         # Get conference details
         cursor.execute('SELECT * FROM conference_publications WHERE id = %s', (conference_id,))
@@ -2898,7 +2935,8 @@ def edit_conference(conference_id):
 def edit_book_chapter(chapter_id):
     try:
         conn = get_db_connection()
-        cursor = conn.cursor() cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
+        cursor = conn.cursor() 
+        cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
         
         # Get book chapter details
         cursor.execute('SELECT * FROM book_chapters WHERE id = %s', (chapter_id,))
@@ -2964,7 +3002,8 @@ def edit_book_chapter(chapter_id):
 def edit_patent(patent_id):
     try:
         conn = get_db_connection()
-        cursor = conn.cursor() cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
+        cursor = conn.cursor() 
+        cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
         
         # Get patent details
         cursor.execute('SELECT * FROM patents WHERE id = %s', (patent_id,))
@@ -3034,7 +3073,8 @@ def edit_patent(patent_id):
 def download_all_publications(faculty_id):
     try:
         conn = get_db_connection()
-        cursor = conn.cursor() cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
+        cursor = conn.cursor() 
+        cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
         
         # Get faculty details
         cursor.execute('SELECT name_ssc, employee_id FROM faculty WHERE id = %s', (faculty_id,))
@@ -3253,7 +3293,8 @@ def add_patents_to_sheet(ws, patents):
 @login_required
 def edit_qualification(qualification_id):
     conn = get_db_connection()
-    cursor = conn.cursor() cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
+    cursor = conn.cursor() 
+    cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
     
     # Get qualification details
     cursor.execute('SELECT * FROM qualifications WHERE id = %s', (qualification_id,))
@@ -3301,7 +3342,8 @@ def edit_qualification(qualification_id):
 def download_qualifications(faculty_id):
     try:
         conn = get_db_connection()
-        cursor = conn.cursor() cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
+        cursor = conn.cursor() 
+        cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
         
         # Get faculty details
         cursor.execute('SELECT * FROM faculty WHERE id = %s', (faculty_id,))
@@ -3404,7 +3446,8 @@ def check_faculty_access():
         
         # For Faculty users, find their profile and redirect appropriately
         conn = get_db_connection()
-        cursor = conn.cursor() cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
+        cursor = conn.cursor() 
+        cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
         cursor.execute('SELECT * FROM faculty WHERE email = %s', (user_email,))
         faculty_profile = cursor.fetchone()
         cursor.close()
@@ -3463,7 +3506,8 @@ def check_designation_access():
         
         # For Faculty users, check if this is their designation
         conn = get_db_connection()
-        cursor = conn.cursor() cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
+        cursor = conn.cursor() 
+        cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
         cursor.execute('SELECT designation FROM faculty WHERE email = %s', (user_email,))
         faculty_profile = cursor.fetchone()
         cursor.close()
@@ -3517,7 +3561,8 @@ def rd_publications_master():
     status = request.args.get('status', '')
     
     conn = get_db_connection()
-    cursor = conn.cursor() cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
+    cursor = conn.cursor() 
+    cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
     
     publications = []
     stats = {}
@@ -3677,7 +3722,8 @@ def rd_download_excel():
         status = request.args.get('status', '')
         
         conn = get_db_connection()
-        cursor = conn.cursor() cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
+        cursor = conn.cursor() 
+        cursor.row_factory = lambda cursor, row: dict(zip([col[0] for col in cursor.description], row))
         
         if publication_type == 'journal':
             query = '''
