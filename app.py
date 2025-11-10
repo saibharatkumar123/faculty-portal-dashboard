@@ -236,7 +236,15 @@ def login():
                                  form_data={'username': username, 'email': email})
     
     return render_template('login.html')
-
+@app.route('/debug-env')
+def debug_env():
+    return {
+        'DB_HOST': os.environ.get('DB_HOST'),
+        'DB_USER': os.environ.get('DB_USER'), 
+        'DB_PORT': os.environ.get('DB_PORT'),
+        'DB_NAME': os.environ.get('DB_NAME'),
+        'FLASK_ENV': os.environ.get('FLASK_ENV')
+    }
 @app.route('/logout')
 def logout():
     session.clear()
