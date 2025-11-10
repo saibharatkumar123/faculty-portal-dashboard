@@ -49,21 +49,25 @@ def allowed_file(filename):
 app = Flask(__name__)
 app.secret_key = 'faculty-secret-key'
 
-import os
-import mysql.connector
-
 def get_db_connection():
     try:
+        # Debug: Print environment variables (remove in production)
+        print(f"DB_HOST: {os.environ.get('DB_HOST')}")
+        print(f"DB_USER: {os.environ.get('DB_USER')}")
+        print(f"DB_PORT: {os.environ.get('DB_PORT')}")
+        
         conn = mysql.connector.connect(
-            host=os.environ.get('DB_HOST', 'crossover.proxy.rlwy.net'),
-            user=os.environ.get('DB_USER', 'root'),
-            password=os.environ.get('DB_PASSWORD', 'tVTpsWGpAjrDUjkUnRbWHcuyUpHxlRWS'),
-            database=os.environ.get('DB_NAME', 'railway'),
-            port=os.environ.get('DB_PORT', 3306)
+            host=os.environ.get('DB_HOST'),  # Remove default values
+            user=os.environ.get('DB_USER'),
+            password=os.environ.get('DB_PASSWORD'),
+            database=os.environ.get('DB_NAME'),
+            port=int(os.environ.get('DB_PORT', 3306)),
+            connect_timeout=10
         )
+        print("✅ Database connected successfully")
         return conn
     except Exception as e:
-        print(f"Database connection error: {e}")
+        print(f"❌ Database connection error: {e}")
         return None
 
 def login_required(f):
