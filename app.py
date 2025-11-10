@@ -57,12 +57,8 @@ app = Flask(__name__)
 app.secret_key = 'faculty-secret-key'
 
 @app.route('/')
-def test_connection():
-    conn = get_db_connection()
-    if conn:
-        return "Database connected successfully!"
-    else:
-        return "Database connection failed!"
+def home():
+    return render_template('login.html')
 
 def login_required(f):
     """Decorator to require login for routes"""
