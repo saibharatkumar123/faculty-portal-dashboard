@@ -63,12 +63,6 @@ def login_required(f):
     return decorated_function
 app = Flask(__name__)
 app.secret_key = 'faculty-secret-key'
-@app.route('/')
-@login_required
-def index():
-    # Your dashboard logic
-    return render_template('index.html')
-
 def can_edit_publications(faculty_id):
     """Check if current user can edit publications for this faculty"""
     user_role = get_user_role()
