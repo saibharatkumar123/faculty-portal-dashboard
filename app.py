@@ -49,13 +49,22 @@ def allowed_file(filename):
 app = Flask(__name__)
 app.secret_key = 'faculty-secret-key'
 
+import os
+import mysql.connector
+
 def get_db_connection():
-    return mysql.connector.connect(
-        host='localhost',
-        user='root',
-        password='Root123!',
-        database='faculty_portal'
-    )
+    try:
+        conn = mysql.connector.connect(
+            host=os.environ.get('DB_HOST', 'crossover.proxy.rlwy.net'),
+            user=os.environ.get('DB_USER', 'root'),
+            password=os.environ.get('DB_PASSWORD', 'tVTpsWGpAjrDUjkUnRbWHcuyUpHxlRWS'),
+            database=os.environ.get('DB_NAME', 'railway'),
+            port=os.environ.get('DB_PORT', 31423)
+        )
+        return conn
+    except Exception as e:
+        print(f"Database connection error: {e}")
+        return None
 
 def login_required(f):
     """Decorator to require login for routes"""
