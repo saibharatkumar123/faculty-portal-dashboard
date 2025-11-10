@@ -138,19 +138,18 @@ def check_publication_access(faculty_id):
     
     return False      
 
-@app.route('/login', methods=['GET', 'POST'])  # BOTH METHODS
+@app.route('/login', methods=['GET', 'POST'])  # CRITICAL: Both methods
 def login():
     if request.method == 'POST':
-        # Handle login logic
-        username = request.form['username']
-        email = request.form['email']
-        password = request.form['password']
-        
-        # Your authentication logic here
-        # If login successful:
-        session['logged_in'] = True
-        return redirect('/')  # Redirect to dashboard
-        
+        # Your login authentication code
+        if login_successful:
+            session['logged_in'] = True
+            session['user_id'] = user_id
+            session['username'] = username
+            return redirect('/')  # Redirect to dashboard
+        else:
+            return render_template('login.html', error='Invalid credentials')
+    
     # GET request - show login form
     return render_template('login.html')
 @app.route('/logout')
