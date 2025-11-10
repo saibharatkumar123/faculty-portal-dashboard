@@ -59,7 +59,7 @@ def get_db_connection():
             user=os.environ.get('DB_USER', 'root'),
             password=os.environ.get('DB_PASSWORD', 'tVTpsWGpAjrDUjkUnRbWHcuyUpHxlRWS'),
             database=os.environ.get('DB_NAME', 'railway'),
-            port=os.environ.get('DB_PORT', 31423)
+            port=os.environ.get('DB_PORT', 3306)
         )
         return conn
     except Exception as e:
