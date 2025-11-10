@@ -7,6 +7,7 @@ import sqlite3
 import os
 import openpyxl
 from openpyxl.styles import Font, Alignment
+from functools import wraps
 from utils import get_department_stats, get_gender_stats, get_appointment_stats, get_experience_stats, get_designation_stats
 # Add these constants and functions at the top
 ALLOWED_EXTENSIONS = {'pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png'}
@@ -52,7 +53,14 @@ def can_add_faculty():
 def allowed_file(filename):
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
-
+def login_required(f):
+    """Decorator to require login for routes"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not session.get('logged_in'):
+            return redirect('/login')
+        return f(*args, **kwargs)
+    return decorated_function
 app = Flask(__name__)
 app.secret_key = 'faculty-secret-key'
 @app.route('/')
