@@ -59,7 +59,11 @@ app.secret_key = 'faculty-secret-key'
 @app.route('/')
 def home():
     return render_template('login.html')
-
+@app.route('/')
+@login_required
+def index():
+    # Your dashboard logic
+    return render_template('index.html')
 def login_required(f):
     """Decorator to require login for routes"""
     from functools import wraps
@@ -134,99 +138,21 @@ def check_publication_access(faculty_id):
     
     return False      
 
-@app.route('/login', methods=['GET', 'POST'])
+@app.route('/login', methods=['GET', 'POST'])  # BOTH METHODS
 def login():
     if request.method == 'POST':
-        username = request.form['username'].strip()
-        email = request.form['email'].strip()
+        # Handle login logic
+        username = request.form['username']
+        email = request.form['email']
         password = request.form['password']
         
-        print(f"🔍 LOGIN ATTEMPT: username='{username}', email='{email}'")
+        # Your authentication logic here
+        # If login successful:
+        session['logged_in'] = True
+        return redirect('/')  # Redirect to dashboard
         
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        
-        try:
-            # ✅ REQUIRE BOTH USERNAME AND EMAIL TO MATCH
-            cursor.execute('SELECT * FROM users WHERE username = %s AND email = %s AND password_hash = %s', 
-                          (username, email, password))
-            user = cursor.fetchone()
-            
-            if user:
-                if not user['approved']:
-                    print(f"🔍 LOGIN FAILED: User '{user['username']}' not approved")
-                    cursor.close()
-                    conn.close()
-                    flash('⏳ Account pending admin approval. Please wait for IQAC approval.', 'error')
-                    return render_template('login.html', error='⏳ Account pending admin approval. Please wait for IQAC approval.')
-                
-                # ✅ SUCCESSFUL LOGIN
-                session['user_id'] = user['id']
-                session['username'] = user['username']
-                session['email'] = user['email']
-                session['role'] = user['role']
-                session['logged_in'] = True
-                
-                # Update last login
-                cursor.execute('UPDATE users SET last_login = NOW() WHERE id = %s', (user['id'],))
-                conn.commit()
-                
-                print(f"🔍 LOGIN SUCCESS: User '{user['username']}' logged in as '{user['role']}'")
-                cursor.close()
-                conn.close()
-                
-                flash(f'✅ Welcome back, {user["username"]}!', 'success')
-                return redirect('/')
-            else:
-                # ✅ CHECK WHAT WENT WRONG FOR BETTER ERROR MESSAGES
-                cursor.execute('SELECT username, email FROM users WHERE username = %s AND email = %s', 
-                              (username, email))
-                user_exists = cursor.fetchone()
-                
-                if user_exists:
-                    # Username and email match but wrong password
-                    print(f"🔍 LOGIN FAILED: Wrong password for user '{username}'")
-                    cursor.close()
-                    conn.close()
-                    flash('❌ Invalid password. Please try again.', 'error')
-                    return render_template('login.html', error='❌ Invalid password. Please try again.', 
-                                         form_data={'username': username, 'email': email})
-                else:
-                    # Check if username exists but email doesn't match
-                    cursor.execute('SELECT username FROM users WHERE username = %s', (username,))
-                    username_exists = cursor.fetchone()
-                    
-                    cursor.execute('SELECT email FROM users WHERE email = %s', (email,))
-                    email_exists = cursor.fetchone()
-                    
-                    cursor.close()
-                    conn.close()
-                    
-                    if username_exists and email_exists:
-                        error_msg = '❌ Username and email combination is incorrect.'
-                    elif username_exists:
-                        error_msg = '❌ Email does not match this username.'
-                    elif email_exists:
-                        error_msg = '❌ Username does not match this email.'
-                    else:
-                        error_msg = '❌ Username and email not found.'
-                    
-                    print(f"🔍 LOGIN FAILED: {error_msg}")
-                    flash(error_msg, 'error')
-                    return render_template('login.html', error=error_msg, 
-                                         form_data={'username': username, 'email': email})
-                    
-        except Exception as e:
-            print(f"🔍 LOGIN ERROR: {str(e)}")
-            if 'conn' in locals() and conn.is_connected():
-                cursor.close()
-                conn.close()
-            flash('❌ System error. Please try again later.', 'error')
-            return render_template('login.html', error='❌ System error. Please try again later.',
-                                 form_data={'username': username, 'email': email})
-    
+    # GET request - show login form
     return render_template('login.html')
-
 @app.route('/logout')
 def logout():
     session.clear()
