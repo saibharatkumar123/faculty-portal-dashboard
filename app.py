@@ -3,7 +3,7 @@ import datetime
 import os
 import io
 from werkzeug.utils import secure_filename
-import mysql.connector
+import psycopg2  # CHANGED FROM mysql.connector
 import openpyxl
 from openpyxl.styles import Font, Alignment
 from utils import get_department_stats, get_gender_stats, get_appointment_stats, get_experience_stats, get_designation_stats
@@ -12,6 +12,28 @@ from utils import get_department_stats, get_gender_stats, get_appointment_stats,
 ALLOWED_EXTENSIONS = {'pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png'}
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
 
+def get_db_connection():
+    try:
+        # For Render PostgreSQL
+        database_url = os.environ.get('DATABASE_URL')
+        
+        if database_url:
+            if database_url.startswith('postgres://'):
+                database_url = database_url.replace('postgres://', 'postgresql://', 1)
+            conn = psycopg2.connect(database_url)
+        else:
+            # Local development fallback
+            conn = psycopg2.connect(
+                host=os.getenv('DB_HOST', 'localhost'),
+                database=os.getenv('DB_NAME', 'faculty_portal'),
+                user=os.getenv('DB_USER', 'postgres'),
+                password=os.getenv('DB_PASSWORD', ''),
+                port=os.getenv('DB_PORT', '5432')
+            )
+        return conn
+    except Exception as e:
+        print(f"Database connection error: {e}")
+        return None
 def get_user_role():
     """Get current user's role with new role names"""
     role = session.get('role', 'Faculty')
@@ -48,20 +70,6 @@ def allowed_file(filename):
 
 app = Flask(__name__)
 app.secret_key = 'faculty-secret-key'
-
-def get_db_connection():
-    try:
-        conn = mysql.connector.connect(
-            host=os.getenv('DB_HOST', 'localhost'),  # Use 'mysql' if in Docker network
-            user=os.getenv('DB_USER', 'root'),
-            password=os.getenv('DB_PASSWORD', ''),
-            database=os.getenv('DB_NAME', 'faculty_portal'),
-            port=os.getenv('DB_PORT', '3306')
-        )
-        return conn
-    except mysql.connector.Error as e:
-        print(f"Database connection error: {e}")
-        return None
 
 @app.route('/')
 def test_connection():
