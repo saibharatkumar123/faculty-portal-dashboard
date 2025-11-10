@@ -3847,5 +3847,13 @@ def rd_download_excel():
         flash(f'❌ Error generating Excel file: {str(e)}', 'error')
         return redirect(f'/rd/publications?type={publication_type}')            
 if __name__ == '__main__':
+    # For local development
     print("🚀 Faculty Portal Starting...")
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    
+    # Check if running on Vercel
+    if os.environ.get('VERCEL'):
+        # Vercel deployment - don't run the Flask dev server
+        print("Running on Vercel - production mode")
+    else:
+        # Local development
+        app.run(debug=True, host='0.0.0.0', port=5000)
