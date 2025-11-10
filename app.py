@@ -63,7 +63,43 @@ def get_db_connection():
         g.db = sqlite3.connect(db_path)
         g.db.row_factory = sqlite3.Row
     return g.db
+# Add this after your app initialization
+def initialize_database():
+    """Initialize database on startup"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Create users table if not exists
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL,
+                email TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT 'Faculty',
+                approved BOOLEAN NOT NULL DEFAULT FALSE,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                last_login DATETIME
+            )
+        ''')
+        
+        # Insert default admin user if not exists
+        cursor.execute('''
+            INSERT OR IGNORE INTO users 
+            (username, email, password_hash, role, approved)
+            VALUES (?, ?, ?, ?, ?)
+        ''', ('iqac_admin', 'iqac.admin@pragati.ac.in', 'Admin123!', 'IQAC', True))
+        
+        conn.commit()
+        cursor.close()
+        print("✅ Database initialized with admin user")
+        
+    except Exception as e:
+        print(f"❌ Database initialization error: {e}")
 
+# Call this function when the app starts
+initialize_database()
 @app.teardown_appcontext
 def close_db(error):
     """Close database connection at the end of request"""
