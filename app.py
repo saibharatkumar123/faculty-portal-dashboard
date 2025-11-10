@@ -7,30 +7,20 @@ import psycopg2  # CHANGED FROM mysql.connector
 import openpyxl
 from openpyxl.styles import Font, Alignment
 from utils import get_department_stats, get_gender_stats, get_appointment_stats, get_experience_stats, get_designation_stats
-
+import psycopg
 # Add these constants and functions at the top
 ALLOWED_EXTENSIONS = {'pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png'}
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
 
 def get_db_connection():
     try:
-        # For Render PostgreSQL
         database_url = os.environ.get('DATABASE_URL')
-        
         if database_url:
             if database_url.startswith('postgres://'):
                 database_url = database_url.replace('postgres://', 'postgresql://', 1)
-            conn = psycopg2.connect(database_url)
-        else:
-            # Local development fallback
-            conn = psycopg2.connect(
-                host=os.getenv('DB_HOST', 'localhost'),
-                database=os.getenv('DB_NAME', 'faculty_portal'),
-                user=os.getenv('DB_USER', 'postgres'),
-                password=os.getenv('DB_PASSWORD', ''),
-                port=os.getenv('DB_PORT', '5432')
-            )
-        return conn
+            conn = psycopg.connect(database_url)
+            return conn
+        return None
     except Exception as e:
         print(f"Database connection error: {e}")
         return None
