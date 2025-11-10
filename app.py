@@ -54,7 +54,13 @@ app.secret_key = 'faculty-secret-key'
 def get_db_connection():
     """Get SQLite database connection"""
     if 'db' not in g:
-        g.db = sqlite3.connect('faculty_portal.db')
+        # Use /tmp directory on Vercel for writable storage
+        if os.environ.get('VERCEL'):
+            db_path = '/tmp/faculty_portal.db'
+        else:
+            db_path = 'faculty_portal.db'
+            
+        g.db = sqlite3.connect(db_path)
         g.db.row_factory = sqlite3.Row
     return g.db
 
