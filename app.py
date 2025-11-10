@@ -51,25 +51,18 @@ app.secret_key = 'faculty-secret-key'
 
 def get_db_connection():
     try:
-        # Debug: Print environment variables (remove in production)
-        print(f"DB_HOST: {os.environ.get('DB_HOST')}")
-        print(f"DB_USER: {os.environ.get('DB_USER')}")
-        print(f"DB_PORT: {os.environ.get('DB_PORT')}")
-        
         conn = mysql.connector.connect(
-            host=os.environ.get('DB_HOST'),  # Remove default values
-            user=os.environ.get('DB_USER'),
-            password=os.environ.get('DB_PASSWORD'),
-            database=os.environ.get('DB_NAME'),
-            port=int(os.environ.get('DB_PORT', 3306)),
+            host='crossover.proxy.rlwy.net',  # Hardcoded
+            user='root',
+            password='tVTpsWGpAjrDUjkUnRbWHcuyUpHxlRWS',
+            database='railway',
+            port=3306,
             connect_timeout=10
         )
-        print("✅ Database connected successfully")
         return conn
     except Exception as e:
-        print(f"❌ Database connection error: {e}")
+        print(f"Database connection error: {e}")
         return None
-
 def login_required(f):
     """Decorator to require login for routes"""
     from functools import wraps
