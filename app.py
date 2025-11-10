@@ -1,12 +1,13 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file, jsonify
+from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file, jsonify, g
 import datetime
 import os
 import io
+import sqlite3
 from werkzeug.utils import secure_filename
-import mysql.connector
 import openpyxl
 from openpyxl.styles import Font, Alignment
 from utils import get_department_stats, get_gender_stats, get_appointment_stats, get_experience_stats, get_designation_stats
+from functools import wraps
 
 # Add these constants and functions at the top
 ALLOWED_EXTENSIONS = {'pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png'}
@@ -49,23 +50,23 @@ def allowed_file(filename):
 app = Flask(__name__)
 app.secret_key = 'faculty-secret-key'
 
+# SQLite Database Connection
 def get_db_connection():
-    try:
-        conn = mysql.connector.connect(
-            host='crossover.proxy.rlwy.net',  # Hardcoded
-            user='root',
-            password='tVTpsWGpAjrDUjkUnRbWHcuyUpHxlRWS',
-            database='railway',
-            port=3306,
-            connect_timeout=10
-        )
-        return conn
-    except Exception as e:
-        print(f"Database connection error: {e}")
-        return None
+    """Get SQLite database connection"""
+    if 'db' not in g:
+        g.db = sqlite3.connect('faculty_portal.db')
+        g.db.row_factory = sqlite3.Row
+    return g.db
+
+@app.teardown_appcontext
+def close_db(error):
+    """Close database connection at the end of request"""
+    db = g.pop('db', None)
+    if db is not None:
+        db.close()
+
 def login_required(f):
     """Decorator to require login for routes"""
-    from functools import wraps
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if not session.get('logged_in'):
@@ -82,11 +83,10 @@ def can_edit_publications(faculty_id):
     if user_role in ['IQAC', 'Office']:
         # Check if this is their own faculty record
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute('SELECT email FROM faculty WHERE id = %s', (faculty_id,))
+        cursor = conn.cursor()
+        cursor.execute('SELECT email FROM faculty WHERE id = ?', (faculty_id,))
         faculty = cursor.fetchone()
         cursor.close()
-        conn.close()
         
         if faculty and faculty['email'] == user_email:
             return True  # Can edit their own
@@ -95,11 +95,10 @@ def can_edit_publications(faculty_id):
     # Faculty can only edit their own
     elif user_role == 'Faculty':
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute('SELECT email FROM faculty WHERE id = %s', (faculty_id,))
+        cursor = conn.cursor()
+        cursor.execute('SELECT email FROM faculty WHERE id = ?', (faculty_id,))
         faculty = cursor.fetchone()
         cursor.close()
-        conn.close()
         
         return faculty and faculty['email'] == user_email
     
@@ -114,11 +113,10 @@ def check_publication_access(faculty_id):
     if user_role in ['IQAC(admin)', 'Office']:
         # Check if this is their own faculty record
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute('SELECT email FROM faculty WHERE id = %s', (faculty_id,))
+        cursor = conn.cursor()
+        cursor.execute('SELECT email FROM faculty WHERE id = ?', (faculty_id,))
         faculty = cursor.fetchone()
         cursor.close()
-        conn.close()
         
         if faculty and faculty['email'] == user_email:
             return True  # Can edit their own
@@ -127,11 +125,10 @@ def check_publication_access(faculty_id):
     # Faculty can only edit their own
     elif user_role == 'Faculty':
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute('SELECT email FROM faculty WHERE id = %s', (faculty_id,))
+        cursor = conn.cursor()
+        cursor.execute('SELECT email FROM faculty WHERE id = ?', (faculty_id,))
         faculty = cursor.fetchone()
         cursor.close()
-        conn.close()
         
         return faculty and faculty['email'] == user_email
     
@@ -147,42 +144,41 @@ def login():
         print(f"🔍 LOGIN ATTEMPT: username='{username}', email='{email}'")
         
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor()
         
         try:
             # ✅ REQUIRE BOTH USERNAME AND EMAIL TO MATCH
-            cursor.execute('SELECT * FROM users WHERE username = %s AND email = %s AND password_hash = %s', 
+            cursor.execute('SELECT * FROM users WHERE username = ? AND email = ? AND password_hash = ?', 
                           (username, email, password))
             user = cursor.fetchone()
             
             if user:
-                if not user['approved']:
-                    print(f"🔍 LOGIN FAILED: User '{user['username']}' not approved")
+                user_dict = dict(user)
+                if not user_dict['approved']:
+                    print(f"🔍 LOGIN FAILED: User '{user_dict['username']}' not approved")
                     cursor.close()
-                    conn.close()
                     flash('⏳ Account pending admin approval. Please wait for IQAC approval.', 'error')
                     return render_template('login.html', error='⏳ Account pending admin approval. Please wait for IQAC approval.')
                 
                 # ✅ SUCCESSFUL LOGIN
-                session['user_id'] = user['id']
-                session['username'] = user['username']
-                session['email'] = user['email']
-                session['role'] = user['role']
+                session['user_id'] = user_dict['id']
+                session['username'] = user_dict['username']
+                session['email'] = user_dict['email']
+                session['role'] = user_dict['role']
                 session['logged_in'] = True
                 
                 # Update last login
-                cursor.execute('UPDATE users SET last_login = NOW() WHERE id = %s', (user['id'],))
+                cursor.execute('UPDATE users SET last_login = datetime("now") WHERE id = ?', (user_dict['id'],))
                 conn.commit()
                 
-                print(f"🔍 LOGIN SUCCESS: User '{user['username']}' logged in as '{user['role']}'")
+                print(f"🔍 LOGIN SUCCESS: User '{user_dict['username']}' logged in as '{user_dict['role']}'")
                 cursor.close()
-                conn.close()
                 
-                flash(f'✅ Welcome back, {user["username"]}!', 'success')
+                flash(f'✅ Welcome back, {user_dict["username"]}!', 'success')
                 return redirect('/')
             else:
                 # ✅ CHECK WHAT WENT WRONG FOR BETTER ERROR MESSAGES
-                cursor.execute('SELECT username, email FROM users WHERE username = %s AND email = %s', 
+                cursor.execute('SELECT username, email FROM users WHERE username = ? AND email = ?', 
                               (username, email))
                 user_exists = cursor.fetchone()
                 
@@ -190,20 +186,18 @@ def login():
                     # Username and email match but wrong password
                     print(f"🔍 LOGIN FAILED: Wrong password for user '{username}'")
                     cursor.close()
-                    conn.close()
                     flash('❌ Invalid password. Please try again.', 'error')
                     return render_template('login.html', error='❌ Invalid password. Please try again.', 
                                          form_data={'username': username, 'email': email})
                 else:
                     # Check if username exists but email doesn't match
-                    cursor.execute('SELECT username FROM users WHERE username = %s', (username,))
+                    cursor.execute('SELECT username FROM users WHERE username = ?', (username,))
                     username_exists = cursor.fetchone()
                     
-                    cursor.execute('SELECT email FROM users WHERE email = %s', (email,))
+                    cursor.execute('SELECT email FROM users WHERE email = ?', (email,))
                     email_exists = cursor.fetchone()
                     
                     cursor.close()
-                    conn.close()
                     
                     if username_exists and email_exists:
                         error_msg = '❌ Username and email combination is incorrect.'
@@ -221,38 +215,13 @@ def login():
                     
         except Exception as e:
             print(f"🔍 LOGIN ERROR: {str(e)}")
-            if 'conn' in locals() and conn.is_connected():
-                cursor.close()
-                conn.close()
+            cursor.close()
             flash('❌ System error. Please try again later.', 'error')
             return render_template('login.html', error='❌ System error. Please try again later.',
                                  form_data={'username': username, 'email': email})
     
     return render_template('login.html')
-@app.route('/test-db-connection')
-def test_db_connection():
-    try:
-        conn = mysql.connector.connect(
-            host='crossover.proxy.rlwy.net',
-            user='root',
-            password='tVTpsWGpAjrDUjkUnRbWHcuyUpHxlRWS',
-            database='railway',
-            port=3306,
-            connect_timeout=10
-        )
-        conn.close()
-        return "✅ Direct connection successful!"
-    except Exception as e:
-        return f"❌ Direct connection failed: {str(e)}"    
-@app.route('/debug-env')
-def debug_env():
-    return {
-        'DB_HOST': os.environ.get('DB_HOST'),
-        'DB_USER': os.environ.get('DB_USER'), 
-        'DB_PORT': os.environ.get('DB_PORT'),
-        'DB_NAME': os.environ.get('DB_NAME'),
-        'FLASK_ENV': os.environ.get('FLASK_ENV')
-    }
+
 @app.route('/logout')
 def logout():
     session.clear()
@@ -276,23 +245,22 @@ def register():
         approved = False
         
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor()
         
         try:
             # ✅ ONLY CHECK: Duplicate EMAIL (email must be unique)
-            cursor.execute('SELECT id, username FROM users WHERE email = %s', (email,))
+            cursor.execute('SELECT id, username FROM users WHERE email = ?', (email,))
             existing_email = cursor.fetchone()
             
             if existing_email:
                 print(f"🔍 REGISTRATION DEBUG: Duplicate email found for {email}")
                 cursor.close()
-                conn.close()
                 flash(f'❌ Email "{email}" is already registered. Please use a different email address.', 'error')
                 return render_template('register.html', form_data=request.form)
             
             # ✅ INSERT NEW USER (allow same username with different email)
             cursor.execute(
-                'INSERT INTO users (username, email, password_hash, role, approved, created_at) VALUES (%s, %s, %s, %s, %s, NOW())',
+                'INSERT INTO users (username, email, password_hash, role, approved, created_at) VALUES (?, ?, ?, ?, ?, datetime("now"))',
                 (username, email, password, role, approved)
             )
             conn.commit()
@@ -301,22 +269,19 @@ def register():
             print(f"🔍 REGISTRATION DEBUG: Successfully registered user ID {user_id}")
             
             cursor.close()
-            conn.close()
             
             # ✅ SUCCESS - Show message on SAME PAGE instead of redirecting immediately
             flash('✅ Registration submitted successfully! Please wait for admin approval.', 'success')
             return render_template('register.html', form_data={}, show_success=True)
                 
-        except mysql.connector.Error as err:
-            print(f"🔍 REGISTRATION DEBUG: MySQL Error - {err}")
+        except sqlite3.Error as err:
+            print(f"🔍 REGISTRATION DEBUG: SQLite Error - {err}")
             
-            if 'conn' in locals() and conn.is_connected():
-                conn.rollback()
-                cursor.close()
-                conn.close()
+            conn.rollback()
+            cursor.close()
             
-            # Handle specific MySQL errors
-            if err.errno == 1062:  # Duplicate entry
+            # Handle specific SQLite errors
+            if 'UNIQUE constraint failed' in str(err):
                 flash('❌ This email is already registered. Please use a different email.', 'error')
             else:
                 flash(f'❌ Database error: {str(err)}', 'error')
@@ -326,10 +291,8 @@ def register():
         except Exception as e:
             print(f"🔍 REGISTRATION DEBUG: General Error - {e}")
             
-            if 'conn' in locals() and conn.is_connected():
-                conn.rollback()
-                cursor.close()
-                conn.close()
+            conn.rollback()
+            cursor.close()
                 
             flash(f'❌ Unexpected error: {str(e)}', 'error')
             return render_template('register.html', form_data=request.form)
@@ -341,7 +304,7 @@ def register():
 @login_required
 def index():
     conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
+    cursor = conn.cursor()
     
     # BASIC STATISTICS - FOR ALL USERS
     cursor.execute('SELECT COUNT(*) as total FROM faculty')
@@ -356,12 +319,12 @@ def index():
     # Get faculty data for statistics
     if get_user_role() in ['Faculty']:
         # Faculty can only see their own data
-        cursor.execute('SELECT * FROM faculty WHERE email = %s', (session.get('email'),))
+        cursor.execute('SELECT * FROM faculty WHERE email = ?', (session.get('email'),))
     else:
         # IQAC/Office can see all faculty
         cursor.execute('SELECT * FROM faculty')
     
-    faculty_data = cursor.fetchall()
+    faculty_data = [dict(row) for row in cursor.fetchall()]
     
     # Get detailed designation counts
     cursor.execute("SELECT COUNT(*) as count FROM faculty WHERE designation = 'Professor'")
@@ -434,7 +397,6 @@ def index():
             print(f"R&D Statistics Error: {e}")
     
     cursor.close()
-    conn.close()
     
     return render_template('index.html',
                          total_faculty=total_faculty,
@@ -460,7 +422,7 @@ def index():
 @login_required
 def faculty_list():
     conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
+    cursor = conn.cursor()
     
     # Get search and filter parameters
     search = request.args.get('search', '')
@@ -481,7 +443,7 @@ def faculty_list():
     # 🔒 ROLE-BASED DATA ACCESS
     if get_user_role() in ['Faculty']:
         # Faculty can only see their own data
-        query = 'SELECT * FROM faculty WHERE email = %s'
+        query = 'SELECT * FROM faculty WHERE email = ?'
         params = [session.get('email')]
     else:
         # IQAC(admin)/Office can see all faculty
@@ -490,25 +452,25 @@ def faculty_list():
     
     # Add filters for Faculty too (but only for their own data)
     if search and search.strip():
-        query += ' AND (name_ssc LIKE %s OR employee_id LIKE %s)'
+        query += ' AND (name_ssc LIKE ? OR employee_id LIKE ?)'
         params.extend([f'%{search}%', f'%{search}%'])
     
     if department and department.strip():
-        query += ' AND department = %s'
+        query += ' AND department = ?'
         params.append(department)
     
     if designation and designation.strip():
-        query += ' AND designation = %s'
+        query += ' AND designation = ?'
         params.append(designation)
     
     if appointment_type and appointment_type.strip():
-        query += ' AND appointment_type = %s'
+        query += ' AND appointment_type = ?'
         params.append(appointment_type)
     
     # FIXED: Experience range filter - Handle decimal values properly
     if exp_from and exp_from.strip():
         try:
-            query += ' AND overall_exp >= %s'
+            query += ' AND overall_exp >= ?'
             params.append(float(exp_from))
             print(f"🔍 DEBUG: Added exp_from filter: overall_exp >= {exp_from}")
         except ValueError:
@@ -516,7 +478,7 @@ def faculty_list():
     
     if exp_to and exp_to.strip():
         try:
-            query += ' AND overall_exp <= %s'
+            query += ' AND overall_exp <= ?'
             params.append(float(exp_to))
             print(f"🔍 DEBUG: Added exp_to filter: overall_exp <= {exp_to}")
         except ValueError:
@@ -528,7 +490,7 @@ def faculty_list():
     print(f"🔧 FACULTY_LIST - QUERY PARAMS: {params}")
     
     cursor.execute(query, params)
-    faculty = cursor.fetchall()
+    faculty = [dict(row) for row in cursor.fetchall()]
     
     print(f"✅ FACULTY_LIST - FOUND {len(faculty)} RECORDS")
     if faculty:
@@ -538,7 +500,6 @@ def faculty_list():
         print("   - No records found")
     
     cursor.close()
-    conn.close()
     
     return render_template('faculty_list.html', 
                          faculty=faculty, 
@@ -555,26 +516,23 @@ def add_faculty():
             
             # ✅ CHECK FOR DUPLICATE EMPLOYEE ID BEFORE PROCESSING
             conn = get_db_connection()
-            cursor = conn.cursor(dictionary=True)
-            cursor.execute('SELECT id, name_ssc FROM faculty WHERE employee_id = %s', (employee_id,))
+            cursor = conn.cursor()
+            cursor.execute('SELECT id, name_ssc FROM faculty WHERE employee_id = ?', (employee_id,))
             existing_employee = cursor.fetchone()
             if existing_employee:
                 cursor.close()
-                conn.close()
                 flash(f'❌ Employee ID "{employee_id}" already assigned to {existing_employee["name_ssc"]}. Please use a different Employee ID.', 'error')
                 return render_template('add_faculty.html', form_data=request.form)
             
             # ✅ CHECK FOR DUPLICATE EMAIL
-            cursor.execute('SELECT id, name_ssc FROM faculty WHERE email = %s', (email,))
+            cursor.execute('SELECT id, name_ssc FROM faculty WHERE email = ?', (email,))
             existing_email = cursor.fetchone()
             if existing_email:
                 cursor.close()
-                conn.close()
                 flash(f'❌ Email "{email}" already registered for {existing_email["name_ssc"]}. Please use a different email address.', 'error')
                 return render_template('add_faculty.html', form_data=request.form)
             
             cursor.close()
-            conn.close()
 
             # Handle photo upload
             photo_path = None
@@ -732,7 +690,7 @@ def add_faculty():
                  bank_name, bank_account_no, ifsc_code, photo_path, experience_category, caste, subcaste, 
                  ratified, ratified_designation, ratification_date, previous_employment_date, resignation_date,
                  teaching_exp_pragati, teaching_exp_other, industrial_exp, overall_exp) 
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)''',
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
                 (employee_id, name_ssc, name_change, document_path, dob, gender, blood_group, marital_status,
                  father_name, present_address, permanent_address, email, mobile_no, alternative_mobile, department, 
                  designation, date_of_joining, appointment_type, aadhaar_number, pan_number,
@@ -742,27 +700,21 @@ def add_faculty():
             )
             conn.commit()
             cursor.close()
-            conn.close()
             
             flash('✅ Faculty member added successfully!', 'success')
             return redirect('/faculty')
             
-        except mysql.connector.Error as err:
+        except sqlite3.Error as err:
             # Handle database errors
-            if 'conn' in locals() and conn.is_connected():
-                conn.rollback()
-                cursor.close()
-                conn.close()
+            conn.rollback()
+            cursor.close()
             
             error_messages = {
-                1062: "❌ Duplicate entry detected. Employee ID or Email already exists.",
-                1452: "❌ Reference error. Please check department or other related data.",
-                1406: "❌ Data too long for one or more fields.",
-                1366: "❌ Incorrect data format in one or more fields.",
-                1048: "❌ Required field is missing. Please check all mandatory fields."
+                'UNIQUE': "❌ Duplicate entry detected. Employee ID or Email already exists.",
+                'FOREIGN': "❌ Reference error. Please check department or other related data.",
             }
             
-            user_message = error_messages.get(err.errno, f'❌ Database error: {str(err)}')
+            user_message = error_messages.get(err.__class__.__name__, f'❌ Database error: {str(err)}')
             flash(user_message, 'error')
             return render_template('add_faculty.html', form_data=request.form)
             
@@ -786,26 +738,23 @@ def edit_faculty(faculty_id):
             
             # ✅ CHECK FOR DUPLICATE EMPLOYEE ID (excluding current faculty)
             conn = get_db_connection()
-            cursor = conn.cursor(dictionary=True)
-            cursor.execute('SELECT id, name_ssc FROM faculty WHERE employee_id = %s AND id != %s', (employee_id, faculty_id))
+            cursor = conn.cursor()
+            cursor.execute('SELECT id, name_ssc FROM faculty WHERE employee_id = ? AND id != ?', (employee_id, faculty_id))
             existing_employee = cursor.fetchone()
             if existing_employee:
                 cursor.close()
-                conn.close()
                 flash(f'❌ Employee ID "{employee_id}" already assigned to {existing_employee["name_ssc"]}. Please use a different Employee ID.', 'error')
                 return render_template('edit_faculty.html', faculty=request.form)
             
             # ✅ CHECK FOR DUPLICATE EMAIL (excluding current faculty)
-            cursor.execute('SELECT id, name_ssc FROM faculty WHERE email = %s AND id != %s', (email, faculty_id))
+            cursor.execute('SELECT id, name_ssc FROM faculty WHERE email = ? AND id != ?', (email, faculty_id))
             existing_email = cursor.fetchone()
             if existing_email:
                 cursor.close()
-                conn.close()
                 flash(f'❌ Email "{email}" already registered for {existing_email["name_ssc"]}. Please use a different email address.', 'error')
                 return render_template('edit_faculty.html', faculty=request.form)
             
             cursor.close()
-            conn.close()
 
             # Get ALL form data including file uploads
             employee_id = request.form['employee_id']
@@ -934,15 +883,15 @@ def edit_faculty(faculty_id):
             # Basic update query
             update_query = '''
                 UPDATE faculty SET 
-                employee_id=%s, name_ssc=%s, name_change=%s, dob=%s, gender=%s, 
-                blood_group=%s, marital_status=%s, father_name=%s, present_address=%s, 
-                permanent_address=%s, email=%s, mobile_no=%s, alternative_mobile=%s, 
-                department=%s, designation=%s, date_of_joining=%s, appointment_type=%s, 
-                aadhaar_number=%s, pan_number=%s, bank_name=%s, bank_account_no=%s, 
-                ifsc_code=%s, caste=%s, subcaste=%s, ratified=%s, ratified_designation=%s,
-                ratification_date=%s, previous_employment_date=%s, resignation_date=%s,
-                teaching_exp_pragati=%s, teaching_exp_other=%s, industrial_exp=%s, 
-                overall_exp=%s, experience_category=%s
+                employee_id=?, name_ssc=?, name_change=?, dob=?, gender=?, 
+                blood_group=?, marital_status=?, father_name=?, present_address=?, 
+                permanent_address=?, email=?, mobile_no=?, alternative_mobile=?, 
+                department=?, designation=?, date_of_joining=?, appointment_type=?, 
+                aadhaar_number=?, pan_number=?, bank_name=?, bank_account_no=?, 
+                ifsc_code=?, caste=?, subcaste=?, ratified=?, ratified_designation=?,
+                ratification_date=?, previous_employment_date=?, resignation_date=?,
+                teaching_exp_pragati=?, teaching_exp_other=?, industrial_exp=?, 
+                overall_exp=?, experience_category=?
             '''
             
             params = [
@@ -956,12 +905,12 @@ def edit_faculty(faculty_id):
             
             # Add photo path if new photo uploaded
             if photo_path:
-                update_query += ', photo_path=%s'
+                update_query += ', photo_path=?'
                 params.append(photo_path)
             
             # Add document path if new document uploaded
             if document_path:
-                update_query += ', name_change_proof=%s'
+                update_query += ', name_change_proof=?'
                 params.append(document_path)
             
             # Handle photo removal
@@ -973,34 +922,28 @@ def edit_faculty(faculty_id):
                 update_query += ', name_change_proof=NULL'
             
             # Add WHERE clause
-            update_query += ' WHERE id=%s'
+            update_query += ' WHERE id=?'
             params.append(faculty_id)
             
             print(f"DEBUG: Executing update query for faculty_id: {faculty_id}")
             cursor.execute(update_query, params)
             conn.commit()
             cursor.close()
-            conn.close()
             
             flash('✅ Faculty information updated successfully!', 'success')
             return redirect('/faculty')
             
-        except mysql.connector.Error as err:
+        except sqlite3.Error as err:
             # Handle specific database errors
-            if 'conn' in locals() and conn.is_connected():
-                conn.rollback()
-                cursor.close()
-                conn.close()
+            conn.rollback()
+            cursor.close()
             
             error_messages = {
-                1062: "❌ Duplicate entry detected. Employee ID or Email already exists.",
-                1452: "❌ Reference error. Please check department or other related data.",
-                1406: "❌ Data too long for one or more fields.",
-                1366: "❌ Incorrect data format in one or more fields.",
-                1048: "❌ Required field is missing. Please check all mandatory fields."
+                'UNIQUE': "❌ Duplicate entry detected. Employee ID or Email already exists.",
+                'FOREIGN': "❌ Reference error. Please check department or other related data.",
             }
             
-            user_message = error_messages.get(err.errno, f'❌ Database error: {str(err)}')
+            user_message = error_messages.get(err.__class__.__name__, f'❌ Database error: {str(err)}')
             flash(user_message, 'error')
             return render_template('edit_faculty.html', faculty=request.form)
             
@@ -1012,17 +955,16 @@ def edit_faculty(faculty_id):
     # GET request - load existing data
     try:
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute('SELECT * FROM faculty WHERE id = %s', (faculty_id,))
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM faculty WHERE id = ?', (faculty_id,))
         faculty = cursor.fetchone()
         cursor.close()
-        conn.close()
         
         if not faculty:
             flash('❌ Faculty member not found!', 'error')
             return redirect('/faculty')
         
-        return render_template('edit_faculty.html', faculty=faculty)
+        return render_template('edit_faculty.html', faculty=dict(faculty))
         
     except Exception as e:
         flash(f'❌ Error loading faculty data: {str(e)}', 'error')
@@ -1034,8 +976,8 @@ def delete_faculty(faculty_id):
     try:
         # First check if faculty exists
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute('SELECT name_ssc FROM faculty WHERE id = %s', (faculty_id,))
+        cursor = conn.cursor()
+        cursor.execute('SELECT name_ssc FROM faculty WHERE id = ?', (faculty_id,))
         faculty = cursor.fetchone()
         
         if not faculty:
@@ -1043,21 +985,18 @@ def delete_faculty(faculty_id):
             return redirect('/faculty')
         
         # Delete the faculty member
-        cursor.execute('DELETE FROM faculty WHERE id = %s', (faculty_id,))
+        cursor.execute('DELETE FROM faculty WHERE id = ?', (faculty_id,))
         conn.commit()
         cursor.close()
-        conn.close()
         
         flash(f'✅ Faculty member {faculty["name_ssc"]} deleted successfully!', 'success')
         return redirect('/faculty')
         
-    except mysql.connector.Error as err:
-        if 'conn' in locals() and conn.is_connected():
-            conn.rollback()
-            cursor.close()
-            conn.close()
+    except sqlite3.Error as err:
+        conn.rollback()
+        cursor.close()
         
-        if err.errno == 1451:  # Foreign key constraint violation
+        if 'FOREIGN' in str(err):
             flash('❌ Cannot delete faculty member. This faculty has related records (qualifications, etc.). Please delete related records first.', 'error')
         else:
             flash(f'❌ Database error while deleting faculty: {str(err)}', 'error')
@@ -1071,20 +1010,19 @@ def delete_faculty(faculty_id):
 @login_required
 def view_qualifications(faculty_id):
     conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
+    cursor = conn.cursor()
     
     # Get faculty details
-    cursor.execute('SELECT * FROM faculty WHERE id = %s', (faculty_id,))
+    cursor.execute('SELECT * FROM faculty WHERE id = ?', (faculty_id,))
     faculty = cursor.fetchone()
     
     # Get qualifications
-    cursor.execute('SELECT * FROM qualifications WHERE faculty_id = %s ORDER BY year_of_passing DESC', (faculty_id,))
-    qualifications = cursor.fetchall()
+    cursor.execute('SELECT * FROM qualifications WHERE faculty_id = ? ORDER BY year_of_passing DESC', (faculty_id,))
+    qualifications = [dict(row) for row in cursor.fetchall()]
     
     cursor.close()
-    conn.close()
     
-    return render_template('qualifications.html', faculty=faculty, qualifications=qualifications)
+    return render_template('qualifications.html', faculty=dict(faculty), qualifications=qualifications)
 
 @app.route('/add_qualification/<int:faculty_id>', methods=['POST'])
 @login_required
@@ -1103,13 +1041,12 @@ def add_qualification(faculty_id):
     cursor.execute(
         '''INSERT INTO qualifications 
         (faculty_id, qualification_type, domain_specialization, percentage, year_of_passing, institution_name, highest_degree, pursuing) 
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)''',
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
         (faculty_id, qualification_type, domain_specialization, percentage, year_of_passing, institution_name, highest_degree, pursuing)
     )
     
     conn.commit()
     cursor.close()
-    conn.close()
     flash('✅ Qualification added successfully!', 'success')
     return redirect(f'/faculty/{faculty_id}/qualifications')
 
@@ -1117,19 +1054,18 @@ def add_qualification(faculty_id):
 @login_required
 def delete_qualification(qualification_id):
     conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
+    cursor = conn.cursor()
     
     # Get faculty_id before deleting
-    cursor.execute('SELECT faculty_id FROM qualifications WHERE id = %s', (qualification_id,))
+    cursor.execute('SELECT faculty_id FROM qualifications WHERE id = ?', (qualification_id,))
     qualification = cursor.fetchone()
     faculty_id = qualification['faculty_id']
     
     # Delete qualification
-    cursor.execute('DELETE FROM qualifications WHERE id = %s', (qualification_id,))
+    cursor.execute('DELETE FROM qualifications WHERE id = ?', (qualification_id,))
     
     conn.commit()
     cursor.close()
-    conn.close()
     flash('✅ Qualification deleted successfully!', 'success')
     return redirect(f'/faculty/{faculty_id}/qualifications')
 
@@ -1137,10 +1073,10 @@ def delete_qualification(qualification_id):
 @login_required
 def view_faculty(faculty_id):
     conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
+    cursor = conn.cursor()
     
     # Get faculty details
-    cursor.execute('SELECT * FROM faculty WHERE id = %s', (faculty_id,))
+    cursor.execute('SELECT * FROM faculty WHERE id = ?', (faculty_id,))
     faculty = cursor.fetchone()
     
     # 🔒 ACCESS CONTROL: Faculty can only view their own profile
@@ -1149,24 +1085,23 @@ def view_faculty(faculty_id):
         return redirect('/faculty')
     
     # Get qualifications
-    cursor.execute('SELECT * FROM qualifications WHERE faculty_id = %s ORDER BY year_of_passing DESC', (faculty_id,))
-    qualifications = cursor.fetchall()
+    cursor.execute('SELECT * FROM qualifications WHERE faculty_id = ? ORDER BY year_of_passing DESC', (faculty_id,))
+    qualifications = [dict(row) for row in cursor.fetchall()]
     
     cursor.close()
-    conn.close()
     
-    return render_template('view_faculty.html', faculty=faculty, qualifications=qualifications)
+    return render_template('view_faculty.html', faculty=dict(faculty), qualifications=qualifications)
 
 @app.route('/department/<department_name>')
 @login_required
 def department_details(department_name):
     conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
+    cursor = conn.cursor()
     
     # 🔒 FOR FACULTY USERS: Check if they have a profile in this department
     if get_user_role() == 'Faculty':
         # First, check if faculty exists in this department with their email
-        cursor.execute('SELECT * FROM faculty WHERE department = %s AND email = %s', 
+        cursor.execute('SELECT * FROM faculty WHERE department = ? AND email = ?', 
                       (department_name, session.get('email')))
         faculty_in_dept = cursor.fetchone()
         
@@ -1175,11 +1110,10 @@ def department_details(department_name):
             flash(f'❌ Access Denied: You do not have a profile in the {department_name} department.', 'error')
             
             # Find their actual department
-            cursor.execute('SELECT department FROM faculty WHERE email = %s', (session.get('email'),))
+            cursor.execute('SELECT department FROM faculty WHERE email = ?', (session.get('email'),))
             actual_faculty = cursor.fetchone()
             
             cursor.close()
-            conn.close()
             
             if actual_faculty:
                 # Redirect to their actual department
@@ -1193,18 +1127,18 @@ def department_details(department_name):
         # Faculty can only see their own data in this department
         cursor.execute('''
             SELECT * FROM faculty 
-            WHERE department = %s AND email = %s
+            WHERE department = ? AND email = ?
             ORDER BY name_ssc
         ''', (department_name, session.get('email')))
     else:
         # IQAC/Office/Admin see all faculty in this department
         cursor.execute('''
             SELECT * FROM faculty 
-            WHERE department = %s 
+            WHERE department = ? 
             ORDER BY name_ssc
         ''', (department_name,))
     
-    faculty = cursor.fetchall()
+    faculty = [dict(row) for row in cursor.fetchall()]
     
     # Get department statistics
     cursor.execute('''
@@ -1214,28 +1148,27 @@ def department_details(department_name):
             COUNT(CASE WHEN gender = 'F' THEN 1 END) as female_count,
             COUNT(CASE WHEN ratified = 'Yes' THEN 1 END) as ratified_count
         FROM faculty 
-        WHERE department = %s
+        WHERE department = ?
     ''', (department_name,))
     
     stats = cursor.fetchone()
     
     cursor.close()
-    conn.close()
     
     return render_template('department_details.html', 
                          department_name=department_name,
                          faculty=faculty,
-                         stats=stats)
+                         stats=dict(stats))
 
 @app.route('/experience/<experience_category>')
 @login_required
 def experience_details(experience_category):
     conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
+    cursor = conn.cursor()
     
     # 🔒 FOR FACULTY USERS: Check if they belong to this experience category
     if get_user_role() == 'Faculty':
-        cursor.execute('SELECT * FROM faculty WHERE experience_category = %s AND email = %s', 
+        cursor.execute('SELECT * FROM faculty WHERE experience_category = ? AND email = ?', 
                       (experience_category, session.get('email')))
         faculty_in_category = cursor.fetchone()
         
@@ -1243,11 +1176,10 @@ def experience_details(experience_category):
             flash(f'❌ Access Denied: You do not belong to the {experience_category} years experience category.', 'error')
             
             # Find their actual experience category
-            cursor.execute('SELECT experience_category FROM faculty WHERE email = %s', (session.get('email'),))
+            cursor.execute('SELECT experience_category FROM faculty WHERE email = ?', (session.get('email'),))
             actual_faculty = cursor.fetchone()
             
             cursor.close()
-            conn.close()
             
             if actual_faculty:
                 return redirect(f'/experience/{actual_faculty["experience_category"]}')
@@ -1258,13 +1190,13 @@ def experience_details(experience_category):
     if get_user_role() in ['viewer']:
         cursor.execute('''
             SELECT * FROM faculty 
-            WHERE experience_category = %s 
+            WHERE experience_category = ? 
             ORDER BY department, name_ssc
         ''', (experience_category,))
     else:
         cursor.execute('''
             SELECT * FROM faculty 
-            WHERE experience_category = %s 
+            WHERE experience_category = ? 
             ORDER BY 
                 CASE 
                     WHEN designation = 'Professor' THEN 1
@@ -1277,7 +1209,7 @@ def experience_details(experience_category):
                 name_ssc
         ''', (experience_category,))
     
-    faculty = cursor.fetchall()
+    faculty = [dict(row) for row in cursor.fetchall()]
     
     # Get experience statistics (viewers can see stats)
     cursor.execute('''
@@ -1288,28 +1220,27 @@ def experience_details(experience_category):
             COUNT(CASE WHEN ratified = 'Yes' THEN 1 END) as ratified_count,
             COUNT(DISTINCT department) as department_count
         FROM faculty 
-        WHERE experience_category = %s
+        WHERE experience_category = ?
     ''', (experience_category,))
     
     stats = cursor.fetchone()
     
     cursor.close()
-    conn.close()
     
     return render_template('experience_details.html', 
                          experience_category=experience_category,
                          faculty=faculty,
-                         stats=stats)
+                         stats=dict(stats))
 
 @app.route('/designation/<designation_name>')
 @login_required
 def designation_details(designation_name):
     conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
+    cursor = conn.cursor()
     
     # 🔒 FOR FACULTY USERS: Check if they have this designation
     if get_user_role() == 'Faculty':
-        cursor.execute('SELECT * FROM faculty WHERE designation = %s AND email = %s', 
+        cursor.execute('SELECT * FROM faculty WHERE designation = ? AND email = ?', 
                       (designation_name, session.get('email')))
         faculty_with_designation = cursor.fetchone()
         
@@ -1317,11 +1248,10 @@ def designation_details(designation_name):
             flash(f'❌ Access Denied: You do not have the {designation_name} designation.', 'error')
             
             # Find their actual designation
-            cursor.execute('SELECT designation FROM faculty WHERE email = %s', (session.get('email'),))
+            cursor.execute('SELECT designation FROM faculty WHERE email = ?', (session.get('email'),))
             actual_faculty = cursor.fetchone()
             
             cursor.close()
-            conn.close()
             
             if actual_faculty:
                 return redirect(f'/designation/{actual_faculty["designation"]}')
@@ -1332,13 +1262,13 @@ def designation_details(designation_name):
     if get_user_role() in ['viewer']:
         cursor.execute('''
             SELECT * FROM faculty 
-            WHERE designation = %s 
+            WHERE designation = ? 
             ORDER BY department, name_ssc
         ''', (designation_name,))
     else:
         cursor.execute('''
             SELECT * FROM faculty 
-            WHERE designation = %s 
+            WHERE designation = ? 
             ORDER BY 
                 department,
                 CASE experience_category
@@ -1350,7 +1280,7 @@ def designation_details(designation_name):
                 name_ssc
         ''', (designation_name,))
     
-    faculty = cursor.fetchall()
+    faculty = [dict(row) for row in cursor.fetchall()]
     
     # Get designation statistics (viewers can see stats)
     cursor.execute('''
@@ -1362,12 +1292,12 @@ def designation_details(designation_name):
             COUNT(CASE WHEN ratified = 'Yes' THEN 1 END) as ratified_count,
             COUNT(CASE WHEN appointment_type = 'Regular' THEN 1 END) as regular_count
         FROM faculty 
-        WHERE designation = %s
+        WHERE designation = ?
         GROUP BY department
         ORDER BY total DESC
     ''', (designation_name,))
     
-    department_stats = cursor.fetchall()
+    department_stats = [dict(row) for row in cursor.fetchall()]
     
     # Get overall designation statistics
     cursor.execute('''
@@ -1379,19 +1309,18 @@ def designation_details(designation_name):
             COUNT(CASE WHEN appointment_type = 'Regular' THEN 1 END) as regular_count,
             COUNT(DISTINCT department) as department_count
         FROM faculty 
-        WHERE designation = %s
+        WHERE designation = ?
     ''', (designation_name,))
     
     stats = cursor.fetchone()
     
     cursor.close()
-    conn.close()
     
     return render_template('designation_details.html', 
                          designation_name=designation_name,
                          faculty=faculty,
                          department_stats=department_stats,
-                         stats=stats)
+                         stats=dict(stats))
 
 @app.route('/manage_users')
 @login_required
@@ -1402,16 +1331,15 @@ def manage_users():
         return redirect('/')
     
     conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
+    cursor = conn.cursor()
     cursor.execute('SELECT * FROM users ORDER BY approved ASC, role, username')
-    users = cursor.fetchall()
+    users = [dict(row) for row in cursor.fetchall()]
     
     # Get pending users count
     cursor.execute('SELECT COUNT(*) as pending_count FROM users WHERE approved = FALSE')
     pending_count = cursor.fetchone()['pending_count']
     
     cursor.close()
-    conn.close()
     
     return render_template('manage_users.html', users=users, pending_count=pending_count)
 
@@ -1433,13 +1361,13 @@ def delete_user(user_id):
     
     try:
         # First, get the username for the flash message
-        cursor.execute('SELECT username FROM users WHERE id = %s', (user_id,))
+        cursor.execute('SELECT username FROM users WHERE id = ?', (user_id,))
         user_to_delete = cursor.fetchone()
         
         if user_to_delete:
-            cursor.execute('DELETE FROM users WHERE id = %s', (user_id,))
+            cursor.execute('DELETE FROM users WHERE id = ?', (user_id,))
             conn.commit()
-            flash(f'✅ User {user_to_delete[0]} deleted successfully!', 'success')
+            flash(f'✅ User {user_to_delete["username"]} deleted successfully!', 'success')
         else:
             flash('❌ User not found!', 'error')
             
@@ -1448,7 +1376,6 @@ def delete_user(user_id):
     
     finally:
         cursor.close()
-        conn.close()
     
     return redirect('/manage_users')
 
@@ -1465,11 +1392,10 @@ def approve_users():
         return redirect('/')
     
     conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
+    cursor = conn.cursor()
     cursor.execute('SELECT * FROM users WHERE approved = FALSE ORDER BY created_at DESC')
-    pending_users = cursor.fetchall()
+    pending_users = [dict(row) for row in cursor.fetchall()]
     cursor.close()
-    conn.close()
     
     return render_template('approve_users.html', pending_users=pending_users)
 
@@ -1483,10 +1409,9 @@ def approve_user(user_id):
     
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute('UPDATE users SET approved = TRUE WHERE id = %s', (user_id,))
+    cursor.execute('UPDATE users SET approved = TRUE WHERE id = ?', (user_id,))
     conn.commit()
     cursor.close()
-    conn.close()
     
     flash('✅ User approved successfully!', 'success')
     return redirect('/approve_users')
@@ -1501,10 +1426,9 @@ def reject_user(user_id):
     
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute('DELETE FROM users WHERE id = %s AND approved = FALSE', (user_id,))
+    cursor.execute('DELETE FROM users WHERE id = ? AND approved = FALSE', (user_id,))
     conn.commit()
     cursor.close()
-    conn.close()
     
     flash('✅ User registration rejected!', 'success')
     return redirect('/approve_users')
@@ -1536,7 +1460,7 @@ def download_faculty_excel():
         
         # 🔒 ROLE-BASED DATA ACCESS
         if get_user_role() in ['Faculty']:
-            query = 'SELECT * FROM faculty WHERE email = %s'
+            query = 'SELECT * FROM faculty WHERE email = ?'
             params = [session.get('email')]
         else:
             query = 'SELECT * FROM faculty WHERE 1=1'
@@ -1544,25 +1468,25 @@ def download_faculty_excel():
         
         # Apply filters
         if search:
-            query += ' AND (name_ssc LIKE %s OR employee_id LIKE %s)'
+            query += ' AND (name_ssc LIKE ? OR employee_id LIKE ?)'
             params.extend([f'%{search}%', f'%{search}%'])
         
         if department:
-            query += ' AND department = %s'
+            query += ' AND department = ?'
             params.append(department)
         
         if designation:
-            query += ' AND designation = %s'
+            query += ' AND designation = ?'
             params.append(designation)
         
         if appointment_type:
-            query += ' AND appointment_type = %s'
+            query += ' AND appointment_type = ?'
             params.append(appointment_type)
         
         # CORRECTED: Experience range filter
         if exp_from and exp_from.strip():
             try:
-                query += ' AND overall_exp >= %s'
+                query += ' AND overall_exp >= ?'
                 params.append(float(exp_from))
                 print(f"🔍 DEBUG: Added exp_from filter: overall_exp >= {exp_from}")
             except ValueError:
@@ -1570,7 +1494,7 @@ def download_faculty_excel():
 
         if exp_to and exp_to.strip():
             try:
-                query += ' AND overall_exp <= %s'
+                query += ' AND overall_exp <= ?'
                 params.append(float(exp_to))
                 print(f"🔍 DEBUG: Added exp_to filter: overall_exp <= {exp_to}")
             except ValueError:
@@ -1583,15 +1507,15 @@ def download_faculty_excel():
 
         # Fetch data
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor()
         cursor.execute(query, params)
-        faculty_data = cursor.fetchall()
+        faculty_data = [dict(row) for row in cursor.fetchall()]
         
         # NEW: Fetch qualifications for all faculty
         faculty_ids = [str(f['id']) for f in faculty_data]
         qualifications_data = {}
         if faculty_ids:
-            placeholders = ','.join(['%s'] * len(faculty_ids))
+            placeholders = ','.join(['?' for _ in faculty_ids])
             cursor.execute(f'''
                 SELECT q.*, f.name_ssc, f.employee_id, f.department, f.designation
                 FROM qualifications q 
@@ -1599,7 +1523,7 @@ def download_faculty_excel():
                 WHERE q.faculty_id IN ({placeholders})
                 ORDER BY q.faculty_id, q.year_of_passing DESC
             ''', faculty_ids)
-            all_qualifications = cursor.fetchall()
+            all_qualifications = [dict(row) for row in cursor.fetchall()]
             
             # Organize qualifications by faculty_id
             for qual in all_qualifications:
@@ -1609,7 +1533,6 @@ def download_faculty_excel():
                 qualifications_data[faculty_id].append(qual)
         
         cursor.close()
-        conn.close()
         
         print(f"✅ EXCEL FOUND {len(faculty_data)} RECORDS")
         if faculty_data:
@@ -1792,8 +1715,8 @@ def download_faculty_single(faculty_id):
     try:
         # Fetch single faculty data
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute('SELECT * FROM faculty WHERE id = %s', (faculty_id,))
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM faculty WHERE id = ?', (faculty_id,))
         faculty = cursor.fetchone()
         
         if not faculty:
@@ -1801,11 +1724,10 @@ def download_faculty_single(faculty_id):
             return redirect('/faculty')
         
         # NEW: Fetch qualifications for this faculty
-        cursor.execute('SELECT * FROM qualifications WHERE faculty_id = %s ORDER BY year_of_passing DESC', (faculty_id,))
-        qualifications = cursor.fetchall()
+        cursor.execute('SELECT * FROM qualifications WHERE faculty_id = ? ORDER BY year_of_passing DESC', (faculty_id,))
+        qualifications = [dict(row) for row in cursor.fetchall()]
         
         cursor.close()
-        conn.close()
         
         # Create Excel workbook with multiple sheets
         wb = openpyxl.Workbook()
@@ -1944,10 +1866,10 @@ def download_faculty_single(faculty_id):
 def view_publications(faculty_id):
     # Access control: Anyone can view, but editing restricted
     conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
+    cursor = conn.cursor()
     
     # Get faculty details
-    cursor.execute('SELECT * FROM faculty WHERE id = %s', (faculty_id,))
+    cursor.execute('SELECT * FROM faculty WHERE id = ?', (faculty_id,))
     faculty = cursor.fetchone()
     
     if not faculty:
@@ -1955,23 +1877,22 @@ def view_publications(faculty_id):
         return redirect('/faculty')
     
     # Get all publications data
-    cursor.execute('SELECT * FROM journal_publications WHERE faculty_id = %s ORDER BY year_of_publication DESC', (faculty_id,))
-    journals = cursor.fetchall()
+    cursor.execute('SELECT * FROM journal_publications WHERE faculty_id = ? ORDER BY year_of_publication DESC', (faculty_id,))
+    journals = [dict(row) for row in cursor.fetchall()]
     
-    cursor.execute('SELECT * FROM conference_publications WHERE faculty_id = %s ORDER BY year_of_publication DESC', (faculty_id,))
-    conferences = cursor.fetchall()
+    cursor.execute('SELECT * FROM conference_publications WHERE faculty_id = ? ORDER BY year_of_publication DESC', (faculty_id,))
+    conferences = [dict(row) for row in cursor.fetchall()]
     
-    cursor.execute('SELECT * FROM book_chapters WHERE faculty_id = %s ORDER BY year_of_publication DESC', (faculty_id,))
-    book_chapters = cursor.fetchall()
+    cursor.execute('SELECT * FROM book_chapters WHERE faculty_id = ? ORDER BY year_of_publication DESC', (faculty_id,))
+    book_chapters = [dict(row) for row in cursor.fetchall()]
     
-    cursor.execute('SELECT * FROM patents WHERE faculty_id = %s ORDER BY filing_date DESC', (faculty_id,))
-    patents = cursor.fetchall()
+    cursor.execute('SELECT * FROM patents WHERE faculty_id = ? ORDER BY filing_date DESC', (faculty_id,))
+    patents = [dict(row) for row in cursor.fetchall()]
     
     cursor.close()
-    conn.close()
     
     return render_template('publications.html', 
-                     faculty=faculty, 
+                     faculty=dict(faculty), 
                      journals=journals, 
                      conferences=conferences,
                      book_chapters=book_chapters,
@@ -2017,7 +1938,7 @@ def add_journal_publication(faculty_id):
              faculty_author_position, paper_title_apa, journal_name, volume_issue, 
              page_numbers, issn_number, doi, year_of_publication, indexing, quartile, 
              impact_factor, journal_link, publisher, funding_agency, remarks) 
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (faculty_id, department, first_author, corresponding_author, other_authors,
               faculty_author_position, paper_title_apa, journal_name, volume_issue,
               page_numbers, issn_number, doi, year_of_publication, indexing, quartile,
@@ -2025,7 +1946,6 @@ def add_journal_publication(faculty_id):
         
         conn.commit()
         cursor.close()
-        conn.close()
         
         flash('✅ Journal publication added successfully!', 'success')
         return redirect(f'/faculty/{faculty_id}/publications')
@@ -2039,10 +1959,10 @@ def add_journal_publication(faculty_id):
 def delete_journal(journal_id):
     try:
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor()
         
         # Get faculty_id before deleting
-        cursor.execute('SELECT faculty_id FROM journal_publications WHERE id = %s', (journal_id,))
+        cursor.execute('SELECT faculty_id FROM journal_publications WHERE id = ?', (journal_id,))
         journal = cursor.fetchone()
         if not journal:
             flash('❌ Journal publication not found!', 'error')
@@ -2053,14 +1973,13 @@ def delete_journal(journal_id):
             flash('❌ Access denied. You can only delete your own R&D publications.', 'error')
             return redirect(f'/faculty/{journal["faculty_id"]}/publications')
         if journal:
-            cursor.execute('DELETE FROM journal_publications WHERE id = %s', (journal_id,))
+            cursor.execute('DELETE FROM journal_publications WHERE id = ?', (journal_id,))
             conn.commit()
             flash('✅ Journal publication deleted successfully!', 'success')
         else:
             flash('❌ Journal publication not found!', 'error')
             
         cursor.close()
-        conn.close()
         
         return redirect(f'/faculty/{journal["faculty_id"]}/publications')
         
@@ -2102,14 +2021,13 @@ def add_conference_publication(faculty_id):
             (faculty_id, department, paper_title, authors, corresponding_author, 
              faculty_author_position, conference_name, conference_venue, conference_dates,
              proceedings_title, isbn_issn, doi, year_of_publication, indexing, publisher, conference_link) 
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (faculty_id, department, paper_title, authors, corresponding_author,
               faculty_author_position, conference_name, conference_venue, conference_dates,
               proceedings_title, isbn_issn, doi, year_of_publication, indexing, publisher, conference_link))
         
         conn.commit()
         cursor.close()
-        conn.close()
         
         flash('✅ Conference publication added successfully!', 'success')
         return redirect(f'/faculty/{faculty_id}/publications')
@@ -2123,10 +2041,10 @@ def add_conference_publication(faculty_id):
 def delete_conference(conference_id):
     try:
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor()
         
         # Get faculty_id before deleting
-        cursor.execute('SELECT faculty_id FROM conference_publications WHERE id = %s', (conference_id,))
+        cursor.execute('SELECT faculty_id FROM conference_publications WHERE id = ?', (conference_id,))
         conference = cursor.fetchone()
         
         if not conference:
@@ -2138,10 +2056,9 @@ def delete_conference(conference_id):
             flash('❌ Access denied. You can only delete your own R&D publications.', 'error')
             return redirect(f'/faculty/{conference["faculty_id"]}/publications')
         
-        cursor.execute('DELETE FROM conference_publications WHERE id = %s', (conference_id,))
+        cursor.execute('DELETE FROM conference_publications WHERE id = ?', (conference_id,))
         conn.commit()
         cursor.close()
-        conn.close()
         
         flash('✅ Conference publication deleted successfully!', 'success')
         return redirect(f'/faculty/{conference["faculty_id"]}/publications')
@@ -2183,14 +2100,13 @@ def add_book_chapter(faculty_id):
             (faculty_id, department, chapter_title, book_title, authors, 
              faculty_author_position, corresponding_author, publisher, isbn_number,
              chapter_doi, year_of_publication, indexing, quartile, impact_factor, chapter_link) 
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (faculty_id, department, chapter_title, book_title, authors,
               faculty_author_position, corresponding_author, publisher, isbn_number,
               chapter_doi, year_of_publication, indexing, quartile, impact_factor, chapter_link))
         
         conn.commit()
         cursor.close()
-        conn.close()
         
         flash('✅ Book chapter added successfully!', 'success')
         return redirect(f'/faculty/{faculty_id}/publications')
@@ -2204,10 +2120,10 @@ def add_book_chapter(faculty_id):
 def delete_book_chapter(chapter_id):
     try:
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor()
         
         # Get faculty_id before deleting
-        cursor.execute('SELECT faculty_id FROM book_chapters WHERE id = %s', (chapter_id,))
+        cursor.execute('SELECT faculty_id FROM book_chapters WHERE id = ?', (chapter_id,))
         chapter = cursor.fetchone()
         
         if not chapter:
@@ -2219,10 +2135,9 @@ def delete_book_chapter(chapter_id):
             flash('❌ Access denied. You can only delete your own R&D publications.', 'error')
             return redirect(f'/faculty/{chapter["faculty_id"]}/publications')
         
-        cursor.execute('DELETE FROM book_chapters WHERE id = %s', (chapter_id,))
+        cursor.execute('DELETE FROM book_chapters WHERE id = ?', (chapter_id,))
         conn.commit()
         cursor.close()
-        conn.close()
         
         flash('✅ Book chapter deleted successfully!', 'success')
         return redirect(f'/faculty/{chapter["faculty_id"]}/publications')
@@ -2269,14 +2184,13 @@ def add_patent(faculty_id):
             (faculty_id, department, patent_title, inventors, corresponding_applicant, 
              faculty_author_position, patent_application_number, filing_date, publication_date,
              grant_date, patent_office, status, patent_type, patent_link, certificate_link) 
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (faculty_id, department, patent_title, inventors, corresponding_applicant,
               faculty_author_position, patent_application_number, filing_date, publication_date,
               grant_date, patent_office, status, patent_type, patent_link, certificate_link))
         
         conn.commit()
         cursor.close()
-        conn.close()
         
         flash('✅ Patent added successfully!', 'success')
         return redirect(f'/faculty/{faculty_id}/publications')
@@ -2290,10 +2204,10 @@ def add_patent(faculty_id):
 def delete_patent(patent_id):
     try:
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor()
         
         # Get faculty_id before deleting
-        cursor.execute('SELECT faculty_id FROM patents WHERE id = %s', (patent_id,))
+        cursor.execute('SELECT faculty_id FROM patents WHERE id = ?', (patent_id,))
         patent = cursor.fetchone()
         
         if not patent:
@@ -2305,10 +2219,9 @@ def delete_patent(patent_id):
             flash('❌ Access denied. You can only delete your own R&D publications.', 'error')
             return redirect(f'/faculty/{patent["faculty_id"]}/publications')
         
-        cursor.execute('DELETE FROM patents WHERE id = %s', (patent_id,))
+        cursor.execute('DELETE FROM patents WHERE id = ?', (patent_id,))
         conn.commit()
         cursor.close()
-        conn.close()
         
         flash('✅ Patent deleted successfully!', 'success')
         return redirect(f'/faculty/{patent["faculty_id"]}/publications')
@@ -2322,93 +2235,89 @@ def delete_patent(patent_id):
 @login_required
 def view_journal(journal_id):
     conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
+    cursor = conn.cursor()
     
     cursor.execute('''
         SELECT j.*, f.name_ssc, f.department as faculty_department 
         FROM journal_publications j 
         JOIN faculty f ON j.faculty_id = f.id 
-        WHERE j.id = %s
+        WHERE j.id = ?
     ''', (journal_id,))
     journal = cursor.fetchone()
     
     cursor.close()
-    conn.close()
     
     if not journal:
         flash('❌ Journal publication not found!', 'error')
         return redirect('/faculty')
     
-    return render_template('view_journal.html', journal=journal)
+    return render_template('view_journal.html', journal=dict(journal))
 
 @app.route('/view_conference/<int:conference_id>')
 @login_required
 def view_conference(conference_id):
     conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
+    cursor = conn.cursor()
     
     cursor.execute('''
         SELECT c.*, f.name_ssc, f.department as faculty_department 
         FROM conference_publications c 
         JOIN faculty f ON c.faculty_id = f.id 
-        WHERE c.id = %s
+        WHERE c.id = ?
     ''', (conference_id,))
     conference = cursor.fetchone()
     
     cursor.close()
-    conn.close()
     
     if not conference:
         flash('❌ Conference publication not found!', 'error')
         return redirect('/faculty')
     
-    return render_template('view_conference.html', conference=conference)
+    return render_template('view_conference.html', conference=dict(conference))
 
 @app.route('/view_book_chapter/<int:chapter_id>')
 @login_required
 def view_book_chapter(chapter_id):
     conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
+    cursor = conn.cursor()
     
     cursor.execute('''
         SELECT b.*, f.name_ssc, f.department as faculty_department 
         FROM book_chapters b 
         JOIN faculty f ON b.faculty_id = f.id 
-        WHERE b.id = %s
+        WHERE b.id = ?
     ''', (chapter_id,))
     chapter = cursor.fetchone()
     
     cursor.close()
-    conn.close()
     
     if not chapter:
         flash('❌ Book chapter not found!', 'error')
         return redirect('/faculty')
     
-    return render_template('view_book_chapter.html', chapter=chapter)
+    return render_template('view_book_chapter.html', chapter=dict(chapter))
 
 @app.route('/view_patent/<int:patent_id>')
 @login_required
 def view_patent(patent_id):
     conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
+    cursor = conn.cursor()
     
     cursor.execute('''
         SELECT p.*, f.name_ssc, f.department as faculty_department 
         FROM patents p 
         JOIN faculty f ON p.faculty_id = f.id 
-        WHERE p.id = %s
+        WHERE p.id = ?
     ''', (patent_id,))
     patent = cursor.fetchone()
     
     cursor.close()
-    conn.close()
     
     if not patent:
         flash('❌ Patent not found!', 'error')
         return redirect('/faculty')
     
-    return render_template('view_patent.html', patent=patent)                               
+    return render_template('view_patent.html', patent=dict(patent))                               
 
 # =====================
 # R&D DOWNLOAD ROUTES
@@ -2419,19 +2328,18 @@ def view_patent(patent_id):
 def download_journals(faculty_id):
     try:
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor()
         
         cursor.execute('''
             SELECT j.*, f.name_ssc as faculty_name, f.department as faculty_department
             FROM journal_publications j 
             JOIN faculty f ON j.faculty_id = f.id 
-            WHERE j.faculty_id = %s 
+            WHERE j.faculty_id = ? 
             ORDER BY j.year_of_publication DESC
         ''', (faculty_id,))
-        journals = cursor.fetchall()
+        journals = [dict(row) for row in cursor.fetchall()]
         
         cursor.close()
-        conn.close()
         
         # Create Excel workbook
         wb = openpyxl.Workbook()
@@ -2513,19 +2421,18 @@ def download_journals(faculty_id):
 def download_conferences(faculty_id):
     try:
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor()
         
         cursor.execute('''
             SELECT c.*, f.name_ssc as faculty_name, f.department as faculty_department
             FROM conference_publications c 
             JOIN faculty f ON c.faculty_id = f.id 
-            WHERE c.faculty_id = %s 
+            WHERE c.faculty_id = ? 
             ORDER BY c.year_of_publication DESC
         ''', (faculty_id,))
-        conferences = cursor.fetchall()
+        conferences = [dict(row) for row in cursor.fetchall()]
         
         cursor.close()
-        conn.close()
         
         # Create Excel workbook
         wb = openpyxl.Workbook()
@@ -2603,19 +2510,18 @@ def download_conferences(faculty_id):
 def download_book_chapters(faculty_id):
     try:
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor()
         
         cursor.execute('''
             SELECT b.*, f.name_ssc as faculty_name, f.department as faculty_department
             FROM book_chapters b 
             JOIN faculty f ON b.faculty_id = f.id 
-            WHERE b.faculty_id = %s 
+            WHERE b.faculty_id = ? 
             ORDER BY b.year_of_publication DESC
         ''', (faculty_id,))
-        chapters = cursor.fetchall()
+        chapters = [dict(row) for row in cursor.fetchall()]
         
         cursor.close()
-        conn.close()
         
         # Create Excel workbook
         wb = openpyxl.Workbook()
@@ -2691,19 +2597,18 @@ def download_book_chapters(faculty_id):
 def download_patents(faculty_id):
     try:
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor()
         
         cursor.execute('''
             SELECT p.*, f.name_ssc as faculty_name, f.department as faculty_department
             FROM patents p 
             JOIN faculty f ON p.faculty_id = f.id 
-            WHERE p.faculty_id = %s 
+            WHERE p.faculty_id = ? 
             ORDER BY p.filing_date DESC
         ''', (faculty_id,))
-        patents = cursor.fetchall()
+        patents = [dict(row) for row in cursor.fetchall()]
         
         cursor.close()
-        conn.close()
         
         # Create Excel workbook
         wb = openpyxl.Workbook()
@@ -2785,14 +2690,14 @@ def download_patents(faculty_id):
 def edit_journal(journal_id):
     try:
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor()
         
         # Get journal details with faculty info
         cursor.execute('''
             SELECT j.*, f.id as faculty_id, f.name_ssc, f.email 
             FROM journal_publications j 
             JOIN faculty f ON j.faculty_id = f.id 
-            WHERE j.id = %s
+            WHERE j.id = ?
         ''', (journal_id,))
         journal = cursor.fetchone()
         
@@ -2830,11 +2735,11 @@ def edit_journal(journal_id):
             # Update journal publication
             cursor.execute('''
                 UPDATE journal_publications SET 
-                department=%s, first_author=%s, corresponding_author=%s, other_authors=%s,
-                faculty_author_position=%s, paper_title_apa=%s, journal_name=%s, volume_issue=%s,
-                page_numbers=%s, issn_number=%s, doi=%s, year_of_publication=%s, indexing=%s,
-                quartile=%s, impact_factor=%s, journal_link=%s, publisher=%s, funding_agency=%s, remarks=%s
-                WHERE id=%s
+                department=?, first_author=?, corresponding_author=?, other_authors=?,
+                faculty_author_position=?, paper_title_apa=?, journal_name=?, volume_issue=?,
+                page_numbers=?, issn_number=?, doi=?, year_of_publication=?, indexing=?,
+                quartile=?, impact_factor=?, journal_link=?, publisher=?, funding_agency=?, remarks=?
+                WHERE id=?
             ''', (department, first_author, corresponding_author, other_authors,
                   faculty_author_position, paper_title_apa, journal_name, volume_issue,
                   page_numbers, issn_number, doi, year_of_publication, indexing, quartile,
@@ -2842,16 +2747,14 @@ def edit_journal(journal_id):
             
             conn.commit()
             cursor.close()
-            conn.close()
             
             flash('✅ Journal publication updated successfully!', 'success')
             return redirect(f'/faculty/{journal["faculty_id"]}/publications')
         
         # GET request - show edit form
         cursor.close()
-        conn.close()
         
-        return render_template('edit_journal.html', journal=journal)
+        return render_template('edit_journal.html', journal=dict(journal))
         
     except Exception as e:
         flash(f'❌ Error editing journal publication: {str(e)}', 'error')
@@ -2863,10 +2766,10 @@ def edit_journal(journal_id):
 def edit_conference(conference_id):
     try:
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor()
         
         # Get conference details
-        cursor.execute('SELECT * FROM conference_publications WHERE id = %s', (conference_id,))
+        cursor.execute('SELECT * FROM conference_publications WHERE id = ?', (conference_id,))
         conference = cursor.fetchone()
         
         if not conference:
@@ -2899,11 +2802,11 @@ def edit_conference(conference_id):
             # Update conference publication
             cursor.execute('''
                 UPDATE conference_publications SET 
-                department=%s, paper_title=%s, authors=%s, corresponding_author=%s,
-                faculty_author_position=%s, conference_name=%s, conference_venue=%s, conference_dates=%s,
-                proceedings_title=%s, isbn_issn=%s, doi=%s, year_of_publication=%s, indexing=%s,
-                publisher=%s, conference_link=%s
-                WHERE id=%s
+                department=?, paper_title=?, authors=?, corresponding_author=?,
+                faculty_author_position=?, conference_name=?, conference_venue=?, conference_dates=?,
+                proceedings_title=?, isbn_issn=?, doi=?, year_of_publication=?, indexing=?,
+                publisher=?, conference_link=?
+                WHERE id=?
             ''', (department, paper_title, authors, corresponding_author,
                   faculty_author_position, conference_name, conference_venue, conference_dates,
                   proceedings_title, isbn_issn, doi, year_of_publication, indexing,
@@ -2911,16 +2814,14 @@ def edit_conference(conference_id):
             
             conn.commit()
             cursor.close()
-            conn.close()
             
             flash('✅ Conference publication updated successfully!', 'success')
             return redirect(f'/faculty/{conference["faculty_id"]}/publications')
         
         # GET request - show edit form
         cursor.close()
-        conn.close()
         
-        return render_template('edit_conference.html', conference=conference)
+        return render_template('edit_conference.html', conference=dict(conference))
         
     except Exception as e:
         flash(f'❌ Error editing conference publication: {str(e)}', 'error')
@@ -2932,10 +2833,10 @@ def edit_conference(conference_id):
 def edit_book_chapter(chapter_id):
     try:
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor()
         
         # Get book chapter details
-        cursor.execute('SELECT * FROM book_chapters WHERE id = %s', (chapter_id,))
+        cursor.execute('SELECT * FROM book_chapters WHERE id = ?', (chapter_id,))
         chapter = cursor.fetchone()
         
         if not chapter:
@@ -2967,26 +2868,24 @@ def edit_book_chapter(chapter_id):
             # Update book chapter
             cursor.execute('''
                 UPDATE book_chapters SET 
-                department=%s, chapter_title=%s, book_title=%s, authors=%s,
-                faculty_author_position=%s, corresponding_author=%s, publisher=%s, isbn_number=%s,
-                chapter_doi=%s, year_of_publication=%s, indexing=%s, quartile=%s, impact_factor=%s, chapter_link=%s
-                WHERE id=%s
+                department=?, chapter_title=?, book_title=?, authors=?,
+                faculty_author_position=?, corresponding_author=?, publisher=?, isbn_number=?,
+                chapter_doi=?, year_of_publication=?, indexing=?, quartile=?, impact_factor=?, chapter_link=?
+                WHERE id=?
             ''', (department, chapter_title, book_title, authors,
                   faculty_author_position, corresponding_author, publisher, isbn_number,
                   chapter_doi, year_of_publication, indexing, quartile, impact_factor, chapter_link, chapter_id))
             
             conn.commit()
             cursor.close()
-            conn.close()
             
             flash('✅ Book chapter updated successfully!', 'success')
             return redirect(f'/faculty/{chapter["faculty_id"]}/publications')
         
         # GET request - show edit form
         cursor.close()
-        conn.close()
         
-        return render_template('edit_book_chapter.html', chapter=chapter)
+        return render_template('edit_book_chapter.html', chapter=dict(chapter))
         
     except Exception as e:
         flash(f'❌ Error editing book chapter: {str(e)}', 'error')
@@ -2998,10 +2897,10 @@ def edit_book_chapter(chapter_id):
 def edit_patent(patent_id):
     try:
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor()
         
         # Get patent details
-        cursor.execute('SELECT * FROM patents WHERE id = %s', (patent_id,))
+        cursor.execute('SELECT * FROM patents WHERE id = ?', (patent_id,))
         patent = cursor.fetchone()
         
         if not patent:
@@ -3038,26 +2937,24 @@ def edit_patent(patent_id):
             # Update patent
             cursor.execute('''
                 UPDATE patents SET 
-                department=%s, patent_title=%s, inventors=%s, corresponding_applicant=%s,
-                faculty_author_position=%s, patent_application_number=%s, filing_date=%s, publication_date=%s,
-                grant_date=%s, patent_office=%s, status=%s, patent_type=%s, patent_link=%s, certificate_link=%s
-                WHERE id=%s
+                department=?, patent_title=?, inventors=?, corresponding_applicant=?,
+                faculty_author_position=?, patent_application_number=?, filing_date=?, publication_date=?,
+                grant_date=?, patent_office=?, status=?, patent_type=?, patent_link=?, certificate_link=?
+                WHERE id=?
             ''', (department, patent_title, inventors, corresponding_applicant,
                   faculty_author_position, patent_application_number, filing_date, publication_date,
                   grant_date, patent_office, status, patent_type, patent_link, certificate_link, patent_id))
             
             conn.commit()
             cursor.close()
-            conn.close()
             
             flash('✅ Patent updated successfully!', 'success')
             return redirect(f'/faculty/{patent["faculty_id"]}/publications')
         
         # GET request - show edit form
         cursor.close()
-        conn.close()
         
-        return render_template('edit_patent.html', patent=patent)
+        return render_template('edit_patent.html', patent=dict(patent))
         
     except Exception as e:
         flash(f'❌ Error editing patent: {str(e)}', 'error')
@@ -3068,10 +2965,10 @@ def edit_patent(patent_id):
 def download_all_publications(faculty_id):
     try:
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor()
         
         # Get faculty details
-        cursor.execute('SELECT name_ssc, employee_id FROM faculty WHERE id = %s', (faculty_id,))
+        cursor.execute('SELECT name_ssc, employee_id FROM faculty WHERE id = ?', (faculty_id,))
         faculty = cursor.fetchone()
         
         if not faculty:
@@ -3079,20 +2976,19 @@ def download_all_publications(faculty_id):
             return redirect('/faculty')
         
         # Get all publications data
-        cursor.execute('SELECT * FROM journal_publications WHERE faculty_id = %s ORDER BY year_of_publication DESC', (faculty_id,))
-        journals = cursor.fetchall()
+        cursor.execute('SELECT * FROM journal_publications WHERE faculty_id = ? ORDER BY year_of_publication DESC', (faculty_id,))
+        journals = [dict(row) for row in cursor.fetchall()]
         
-        cursor.execute('SELECT * FROM conference_publications WHERE faculty_id = %s ORDER BY year_of_publication DESC', (faculty_id,))
-        conferences = cursor.fetchall()
+        cursor.execute('SELECT * FROM conference_publications WHERE faculty_id = ? ORDER BY year_of_publication DESC', (faculty_id,))
+        conferences = [dict(row) for row in cursor.fetchall()]
         
-        cursor.execute('SELECT * FROM book_chapters WHERE faculty_id = %s ORDER BY year_of_publication DESC', (faculty_id,))
-        book_chapters = cursor.fetchall()
+        cursor.execute('SELECT * FROM book_chapters WHERE faculty_id = ? ORDER BY year_of_publication DESC', (faculty_id,))
+        book_chapters = [dict(row) for row in cursor.fetchall()]
         
-        cursor.execute('SELECT * FROM patents WHERE faculty_id = %s ORDER BY filing_date DESC', (faculty_id,))
-        patents = cursor.fetchall()
+        cursor.execute('SELECT * FROM patents WHERE faculty_id = ? ORDER BY filing_date DESC', (faculty_id,))
+        patents = [dict(row) for row in cursor.fetchall()]
         
         cursor.close()
-        conn.close()
         
         # Create Excel workbook with multiple sheets
         wb = openpyxl.Workbook()
@@ -3287,10 +3183,10 @@ def add_patents_to_sheet(ws, patents):
 @login_required
 def edit_qualification(qualification_id):
     conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
+    cursor = conn.cursor()
     
     # Get qualification details
-    cursor.execute('SELECT * FROM qualifications WHERE id = %s', (qualification_id,))
+    cursor.execute('SELECT * FROM qualifications WHERE id = ?', (qualification_id,))
     qualification = cursor.fetchone()
     
     if not qualification:
@@ -3298,7 +3194,7 @@ def edit_qualification(qualification_id):
         return redirect('/faculty')
     
     # Get faculty details for navigation
-    cursor.execute('SELECT * FROM faculty WHERE id = %s', (qualification['faculty_id'],))
+    cursor.execute('SELECT * FROM faculty WHERE id = ?', (qualification['faculty_id'],))
     faculty = cursor.fetchone()
     
     if request.method == 'POST':
@@ -3313,40 +3209,37 @@ def edit_qualification(qualification_id):
         
         cursor.execute('''
             UPDATE qualifications SET 
-            qualification_type=%s, domain_specialization=%s, percentage=%s, 
-            year_of_passing=%s, institution_name=%s, highest_degree=%s, pursuing=%s
-            WHERE id=%s
+            qualification_type=?, domain_specialization=?, percentage=?, 
+            year_of_passing=?, institution_name=?, highest_degree=?, pursuing=?
+            WHERE id=?
         ''', (qualification_type, domain_specialization, percentage, 
               year_of_passing, institution_name, highest_degree, pursuing, qualification_id))
         
         conn.commit()
         cursor.close()
-        conn.close()
         
         flash('✅ Qualification updated successfully!', 'success')
         return redirect(f'/faculty/{qualification["faculty_id"]}/qualifications')
     
     cursor.close()
-    conn.close()
-    return render_template('edit_qualification.html', qualification=qualification, faculty=faculty)
+    return render_template('edit_qualification.html', qualification=dict(qualification), faculty=dict(faculty))
 
 @app.route('/download_qualifications/<int:faculty_id>')
 @login_required
 def download_qualifications(faculty_id):
     try:
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor()
         
         # Get faculty details
-        cursor.execute('SELECT * FROM faculty WHERE id = %s', (faculty_id,))
+        cursor.execute('SELECT * FROM faculty WHERE id = ?', (faculty_id,))
         faculty = cursor.fetchone()
         
         # Get all qualifications
-        cursor.execute('SELECT * FROM qualifications WHERE faculty_id = %s ORDER BY year_of_passing DESC', (faculty_id,))
-        qualifications = cursor.fetchall()
+        cursor.execute('SELECT * FROM qualifications WHERE faculty_id = ? ORDER BY year_of_passing DESC', (faculty_id,))
+        qualifications = [dict(row) for row in cursor.fetchall()]
         
         cursor.close()
-        conn.close()
         
         if not faculty:
             flash('❌ Faculty member not found!', 'error')
@@ -3438,11 +3331,10 @@ def check_faculty_access():
         
         # For Faculty users, find their profile and redirect appropriately
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute('SELECT * FROM faculty WHERE email = %s', (user_email,))
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM faculty WHERE email = ?', (user_email,))
         faculty_profile = cursor.fetchone()
         cursor.close()
-        conn.close()
         
         if not faculty_profile:
             return jsonify({
@@ -3497,11 +3389,10 @@ def check_designation_access():
         
         # For Faculty users, check if this is their designation
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute('SELECT designation FROM faculty WHERE email = %s', (user_email,))
+        cursor = conn.cursor()
+        cursor.execute('SELECT designation FROM faculty WHERE email = ?', (user_email,))
         faculty_profile = cursor.fetchone()
         cursor.close()
-        conn.close()
         
         if not faculty_profile:
             return jsonify({
@@ -3551,7 +3442,7 @@ def rd_publications_master():
     status = request.args.get('status', '')
     
     conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
+    cursor = conn.cursor()
     
     publications = []
     stats = {}
@@ -3576,19 +3467,19 @@ def rd_publications_master():
         params = []
         
         if department:
-            query += ' AND j.department = %s'
+            query += ' AND j.department = ?'
             params.append(department)
         if year:
-            query += ' AND j.year_of_publication = %s'
+            query += ' AND j.year_of_publication = ?'
             params.append(year)
         if indexing:
-            query += ' AND j.indexing = %s'
+            query += ' AND j.indexing = ?'
             params.append(indexing)
         
         query += ' ORDER BY j.year_of_publication DESC, j.department'
         
         cursor.execute(query, params)
-        publications = cursor.fetchall()
+        publications = [dict(row) for row in cursor.fetchall()]
         
         # Get stats
         cursor.execute('SELECT COUNT(*) as total FROM journal_publications')
@@ -3605,16 +3496,16 @@ def rd_publications_master():
         params = []
         
         if department:
-            query += ' AND c.department = %s'
+            query += ' AND c.department = ?'
             params.append(department)
         if year:
-            query += ' AND c.year_of_publication = %s'
+            query += ' AND c.year_of_publication = ?'
             params.append(year)
         
         query += ' ORDER BY c.year_of_publication DESC, c.department'
         
         cursor.execute(query, params)
-        publications = cursor.fetchall()
+        publications = [dict(row) for row in cursor.fetchall()]
         
         # Get stats
         cursor.execute('SELECT COUNT(*) as total FROM conference_publications')
@@ -3631,16 +3522,16 @@ def rd_publications_master():
         params = []
         
         if department:
-            query += ' AND b.department = %s'
+            query += ' AND b.department = ?'
             params.append(department)
         if year:
-            query += ' AND b.year_of_publication = %s'
+            query += ' AND b.year_of_publication = ?'
             params.append(year)
         
         query += ' ORDER BY b.year_of_publication DESC, b.department'
         
         cursor.execute(query, params)
-        publications = cursor.fetchall()
+        publications = [dict(row) for row in cursor.fetchall()]
         
         # Get stats
         cursor.execute('SELECT COUNT(*) as total FROM book_chapters')
@@ -3657,26 +3548,25 @@ def rd_publications_master():
         params = []
         
         if department:
-            query += ' AND p.department = %s'
+            query += ' AND p.department = ?'
             params.append(department)
         if year:
-            query += ' AND YEAR(p.filing_date) = %s'
+            query += ' AND strftime("%Y", p.filing_date) = ?'
             params.append(year)
         if status:
-            query += ' AND p.status = %s'
+            query += ' AND p.status = ?'
             params.append(status)
         
         query += ' ORDER BY p.filing_date DESC, p.department'
         
         cursor.execute(query, params)
-        publications = cursor.fetchall()
+        publications = [dict(row) for row in cursor.fetchall()]
         
         # Get stats
         cursor.execute('SELECT COUNT(*) as total FROM patents')
         stats['total'] = cursor.fetchone()['total']
     
     cursor.close()
-    conn.close()
     
     # Get current year and last 10 years for year filter
     current_year = datetime.datetime.now().year
@@ -3711,7 +3601,7 @@ def rd_download_excel():
         status = request.args.get('status', '')
         
         conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
+        cursor = conn.cursor()
         
         if publication_type == 'journal':
             query = '''
@@ -3723,19 +3613,19 @@ def rd_download_excel():
             params = []
             
             if department:
-                query += ' AND j.department = %s'
+                query += ' AND j.department = ?'
                 params.append(department)
             if year:
-                query += ' AND j.year_of_publication = %s'
+                query += ' AND j.year_of_publication = ?'
                 params.append(year)
             if indexing:
-                query += ' AND j.indexing = %s'
+                query += ' AND j.indexing = ?'
                 params.append(indexing)
             
             query += ' ORDER BY j.year_of_publication DESC, j.department'
             
             cursor.execute(query, params)
-            publications = cursor.fetchall()
+            publications = [dict(row) for row in cursor.fetchall()]
             
             # Create Excel for journals
             wb = openpyxl.Workbook()
@@ -3779,16 +3669,16 @@ def rd_download_excel():
             params = []
             
             if department:
-                query += ' AND c.department = %s'
+                query += ' AND c.department = ?'
                 params.append(department)
             if year:
-                query += ' AND c.year_of_publication = %s'
+                query += ' AND c.year_of_publication = ?'
                 params.append(year)
             
             query += ' ORDER BY c.year_of_publication DESC, c.department'
             
             cursor.execute(query, params)
-            publications = cursor.fetchall()
+            publications = [dict(row) for row in cursor.fetchall()]
             
             # Create Excel for conferences
             wb = openpyxl.Workbook()
@@ -3829,16 +3719,16 @@ def rd_download_excel():
             params = []
             
             if department:
-                query += ' AND b.department = %s'
+                query += ' AND b.department = ?'
                 params.append(department)
             if year:
-                query += ' AND b.year_of_publication = %s'
+                query += ' AND b.year_of_publication = ?'
                 params.append(year)
             
             query += ' ORDER BY b.year_of_publication DESC, b.department'
             
             cursor.execute(query, params)
-            publications = cursor.fetchall()
+            publications = [dict(row) for row in cursor.fetchall()]
             
             # Create Excel for book chapters
             wb = openpyxl.Workbook()
@@ -3878,19 +3768,19 @@ def rd_download_excel():
             params = []
             
             if department:
-                query += ' AND p.department = %s'
+                query += ' AND p.department = ?'
                 params.append(department)
             if year:
-                query += ' AND YEAR(p.filing_date) = %s'
+                query += ' AND strftime("%Y", p.filing_date) = ?'
                 params.append(year)
             if status:
-                query += ' AND p.status = %s'
+                query += ' AND p.status = ?'
                 params.append(status)
             
             query += ' ORDER BY p.filing_date DESC, p.department'
             
             cursor.execute(query, params)
-            publications = cursor.fetchall()
+            publications = [dict(row) for row in cursor.fetchall()]
             
             # Create Excel for patents
             wb = openpyxl.Workbook()
@@ -3922,7 +3812,6 @@ def rd_download_excel():
                 ws.cell(row=row, column=14, value=str(pub['grant_date']) if pub['grant_date'] else '')
         
         cursor.close()
-        conn.close()
         
         # Auto-adjust column widths
         for column in ws.columns:
@@ -3959,4 +3848,4 @@ def rd_download_excel():
         return redirect(f'/rd/publications?type={publication_type}')            
 if __name__ == '__main__':
     print("🚀 Faculty Portal Starting...")
-    app.run(debug=True)
+    app.run(debug=True, host='0.0.0.0', port=5000)
